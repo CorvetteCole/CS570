@@ -1,5 +1,8 @@
 # CS570 Assignment 1
-hello!
+## Specification Differences
+Here are a list of places where I deviated from the given specification to build a more robust program.
+- example 3
+- example 2
 
 ## Usage
 ### Build
