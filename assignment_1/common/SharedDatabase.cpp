@@ -13,6 +13,37 @@ SharedDatabase<T>::SharedDatabase(std::string &password) {
   auto metadata_key = ftok(".", METADATA_MEM_ID);
   auto database_key = ftok(".", DATABASE_MEM_ID);
 
+  // check if shared memory segment for metadata exists
+  auto metadata_shmid = shmget(metadata_key, sizeof(DatabaseMetadata), 0);
+  bool metadata_exists = metadata_shmid != -1;
+  if (metadata_exists) {
+    // create shared memory segment for metadata
+    metadata_shmid = shmget(metadata_key, sizeof(DatabaseMetadata),
+                            IPC_CREAT | S_IRUSR | S_IWUSR);
+    if (metadata_shmid != 0) {
+      throw std::runtime_error("Failed to create shared memory segment");
+    }
+
+    // attach temporarily in read-write, initialize metadata, then detach
+    auto metadata =
+        static_cast<DatabaseMetadata *>(shmat(metadata_shmid, nullptr, 0));
+    if (metadata == reinterpret_cast<DatabaseMetadata *>(-1)) {
+      throw std::runtime_error("Failed to attach to shared memory segment");
+    }
+    metadata->version = DB_VERSION;
+    metadata->passwordHash = passwordHash;
+    if (shmdt(metadata) != 0) {
+      throw std::runtime_error("Failed to detach from shared memory segment");
+    }
+  }
+
+  // attach metadata_ to shared memory segment for metadata in read-only mode
+  metadata_ = static_cast<DatabaseMetadata *>(
+      shmat(metadata_shmid, nullptr, metadata_exists ? SHM_RDONLY : 0));
+  if (metadata_ == reinterpret_cast<DatabaseMetadata *>(-1)) {
+    throw std::runtime_error("Failed to attach to shared memory segment");
+  }
+
   // Setup shared memory segment(s) to share:
   // - database
   // - database metadata
