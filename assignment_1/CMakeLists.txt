@@ -4,13 +4,8 @@ project(assignment_1)
 set(CMAKE_CXX_STANDARD 20)
 
 add_executable(assignment_1 main.cpp
-        Load.cpp
-        Load.h
-        Print.cpp
-        Print.h
-        Query.cpp
-        Query.h
-        Change.cpp
-        Change.h
-        Clean.cpp
-        Clean.h)
+        common/SharedDatabase.cpp
+        common/SharedDatabase.h
+        common/StudentInfo.cpp
+        common/StudentInfo.h
+)
