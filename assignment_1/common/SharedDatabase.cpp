@@ -19,24 +19,30 @@ SharedDatabase<T>::SharedDatabase(const std::string &id,
 }
 
 template <typename T>
-size_t SharedDatabase<T>::getSize() const {
-  return this->size;
-}
-template <typename T>
-size_t SharedDatabase<T>::getMaxSize() const {
-  return this->maxSize;
+SharedDatabase<T>::~SharedDatabase() {
+
 }
 
 template <typename T>
-T SharedDatabase<T>::get(size_t index) const {
-  auto lock = lockEntry(index);
+T SharedDatabase<T>::at(size_t index) const {
+  // check if index is within bounds
+  if (index >= this->numEntries) {
+    throw std::out_of_range("Index out of bounds");
+  }
+
+  auto lock = acquireSem(this->entries[index].lock);
   // Return a copy of the data
   return this->entries[index].data;
 }
 
 template <typename T>
 std::shared_ptr<T> SharedDatabase<T>::at(size_t index) {
-  auto lock = lockEntry(index);
+  // check if index is within bounds
+  if (index >= this->numEntries) {
+    throw std::out_of_range("Index out of bounds");
+  }
+
+  auto lock = acquireSem(this->entries[index].lock);
   // Return a shared pointer to the data, with a custom deleter that unlocks
   // the entry
   return std::make_shared<T>(&this->entries[index].data,
@@ -44,22 +50,53 @@ std::shared_ptr<T> SharedDatabase<T>::at(size_t index) {
 }
 
 template <typename T>
-std::shared_ptr<T> SharedDatabase<T>::operator[](std::size_t index) {
-  return at(index);
-}
-
-template <typename T>
-std::shared_ptr<sem_t> SharedDatabase<T>::lockEntry(size_t index) const {
+void SharedDatabase<T>::erase(size_t index) {
   // check if index is within bounds
-  if (index >= this->size) {
+  if (index >= this->numEntries) {
     throw std::out_of_range("Index out of bounds");
   }
 
+  auto lock = acquireSem(this->entries[index].lock);
+  delete this->entries[index].data;
+}
+
+template <typename T>
+void SharedDatabase<T>::push_back(T data) {
+  if (this->numEntries >= this->maxEntries) {
+    throw std::out_of_range("Database is full");
+  }
+  auto countLock = acquireSem(this->lock);
+  auto entryLock = acquireSem(this->entries[this->numEntries].lock);
+  this->entries[this->numEntries].data = data;
+  this->numEntries++;
+}
+
+template <typename T>
+void SharedDatabase<T>::set(size_t index, T data) {
+  // check if index is within bounds
+  if (index >= this->numEntries) {
+    throw std::out_of_range("Index out of bounds");
+  }
+
+  auto lock = acquireSem(this->entries[index].lock);
+  this->entries[index].data = data;
+}
+
+template <typename T>
+size_t SharedDatabase<T>::maxSize() const {
+  return this->maxEntries;
+}
+template <typename T>
+size_t SharedDatabase<T>::size() const {
+  return this->numEntries;
+}
+
+template <typename T>
+std::shared_ptr<sem_t> SharedDatabase<T>::acquireSem(sem_t *semaphore) const {
   // Get a lock on the database entry. Da a sem_timedwait() on it and
   // throw an exception if it times out.
   timespec timeout{LOCK_TIMEOUT.count()};
-  auto lock = this->entries[index].lock;
-  switch (sem_timedwait(lock, &timeout)) {
+  switch (sem_timedwait(semaphore, &timeout)) {
     case 0:
       break;
     case ETIMEDOUT:
@@ -71,5 +108,6 @@ std::shared_ptr<sem_t> SharedDatabase<T>::lockEntry(size_t index) const {
 
   // Return a shared pointer to the semaphore, with a custom deleter that
   // unlocks the semaphore
-  return std::make_shared<sem_t>(lock, [](sem_t *lock) { sem_post(lock); });
+  return std::make_shared<sem_t>(semaphore,
+                                 [](sem_t *lock) { sem_post(lock); });
 }

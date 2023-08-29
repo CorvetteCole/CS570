@@ -24,7 +24,6 @@ constexpr std::chrono::seconds LOCK_TIMEOUT = 5s;
 // use it to determine if they should mount the database shared memory segment
 // as read-only or read-write.
 struct DatabaseMetadata {
-  sem_t lock;
   uint32_t version;
   std::size_t passwordHash;
 };
@@ -41,8 +40,10 @@ template <typename T>
 // Represents the database. Contains metadata about the database; a hash of the
 // password, and an array of entries.
 struct Database {
-  size_t size;
-  size_t maxSize;
+  // Must be locked before accessing numEntries
+  sem_t lock;
+  size_t numEntries;
+  size_t maxEntries;
   DatabaseEntry<T> entries[];
 };
 
@@ -61,31 +62,28 @@ class SharedDatabase : private Database<T> {
   // the database, it will be cleaned up from shared memory as well.
   ~SharedDatabase();
 
-  [[nodiscard]] size_t getSize() const;
-
-  [[nodiscard]] size_t getMaxSize() const;
-
   // Returns a copy of the element at the given index.
-  [[nodiscard]] T get(size_t index) const;
-
-  // Returns a copy of all elements in the database.
-  [[nodiscard]] std::vector<T> getAll() const;
+  [[nodiscard]] T at(size_t index) const;
 
   // Returns a shared pointer to the element at the given index. The database is
   // locked while the pointer is in use, and unlocked when the pointer is
   // destroyed.
   [[nodiscard]] std::shared_ptr<T> at(size_t index);
 
-  // Returns a shared pointer to the element at the given index. The database is
-  // locked while the pointer is in use, and unlocked when the pointer is
-  // destroyed.
-  [[nodiscard]] std::shared_ptr<T> operator[](std::size_t index);
+  // Deletes the element at the given index.
+  void erase(size_t index);
 
-  // Adds a new element to the database.
-  void add(const T &element);
+  // Adds an element to the end of the database.
+  void push_back(T data);
 
-  // Removes the element at the given index from the database.
-  void remove(size_t index);
+  // Sets the element at the given index to the given data.
+  void set(size_t index, T data);
+
+  // Returns the number of elements in the database.
+  [[nodiscard]] size_t size() const;
+
+  // Returns the maximum number of elements in the database.
+  [[nodiscard]] size_t maxSize() const;
 
  private:
   // The identifier of the database. Used to identify shared memory segments.
@@ -98,10 +96,9 @@ class SharedDatabase : private Database<T> {
   // Database metadata
   DatabaseMetadata *metadata_;
 
-  // Gets a semaphore associated with the given index. Automatically unlocks the
-  // semaphore when the returned shared pointer is destroyed.
-  [[nodiscard]] std::shared_ptr<sem_t> lockEntry(size_t index) const;
+  // Locks a semaphore associated with the given index. Automatically unlock
+  // the semaphore when the returned shared pointer is destroyed.
+  [[nodiscard]] std::shared_ptr<sem_t> acquireSem(sem_t *semaphore) const;
 };
-
 
 #endif  // ASSIGNMENT_1_SHAREDDATABASE_H
