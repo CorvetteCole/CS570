@@ -5,10 +5,6 @@
 #ifndef ASSIGNMENT_1_STUDENTINFO_H
 #define ASSIGNMENT_1_STUDENTINFO_H
 
+class StudentInfo {};
 
-class StudentInfo {
-
-};
-
-
-#endif //ASSIGNMENT_1_STUDENTINFO_H
+#endif  // ASSIGNMENT_1_STUDENTINFO_H
