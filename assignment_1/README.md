@@ -23,10 +23,13 @@ In your `build` directory:
 
 [//]: # (Table contained print query change load and clean commands, with some extra cells unfilled for what they do. Arguments will include long and short versions e.g. -v and --verbose)
 
-| Argument | Long | Description           |
-| --- | --- |-----------------------|
-| -h | --help | Print help message    |
-| -v | --verbose | Enable verbose output |
+| Argument | Long          | Type | Description            |
+|----------|---------------|------|------------------------|
+| -h       | --help        | flag | Print help message     |
+| -v       | --verbose     | flag | Enable verbose output  |
+| -i       | --interactive | flag | Enter interactive mode |
+
+
 
 ## Libraries Used
 - [nlohmann/json](https://github.com/nlohmann/json)
