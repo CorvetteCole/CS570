@@ -1,11 +1,18 @@
 #include "SharedDatabase.h"
 
-#include <time.h>
+#include <ctime>
+#include <iostream>
 
 template <typename T>
-SharedDatabase<T>::SharedDatabase(const std::string &id,
-                                  std::string &password) {
-  // TODO generate key_t using ftok() from id
+SharedDatabase<T>::SharedDatabase(std::string &password) {
+  // this is a terrible hash function, but it works for the purposes of this
+  // project
+  std::size_t passwordHash = std::hash<std::string>{}(password);
+
+  // generate key_t using ftok() from current executable file path and the id
+  auto metadata_key = ftok(".", METADATA_MEM_ID);
+  auto database_key = ftok(".", DATABASE_MEM_ID);
+
   // Setup shared memory segment(s) to share:
   // - database
   // - database metadata
@@ -16,12 +23,12 @@ SharedDatabase<T>::SharedDatabase(const std::string &id,
   // Need to handle creating this all if it doesn't exist, or opening it if it
   // does exist. So the first thing to do is check if a particular shared memory
   // segment exists whose key is derived from the id as mentioned above.
+
+  // if does not exist, create...
 }
 
 template <typename T>
-SharedDatabase<T>::~SharedDatabase() {
-
-}
+SharedDatabase<T>::~SharedDatabase() {}
 
 template <typename T>
 T SharedDatabase<T>::at(size_t index) const {
@@ -88,6 +95,7 @@ size_t SharedDatabase<T>::maxSize() const {
 }
 template <typename T>
 size_t SharedDatabase<T>::size() const {
+  auto lock = acquireSem(this->lock);
   return this->numEntries;
 }
 
@@ -108,6 +116,8 @@ std::shared_ptr<sem_t> SharedDatabase<T>::acquireSem(sem_t *semaphore) const {
 
   // Return a shared pointer to the semaphore, with a custom deleter that
   // unlocks the semaphore
-  return std::make_shared<sem_t>(semaphore,
-                                 [](sem_t *lock) { sem_post(lock); });
+  return std::make_shared<sem_t>(semaphore, [](sem_t *lock) {
+    std::cout << "unlocking semaphore" << std::endl;
+    sem_post(lock);
+  });
 }

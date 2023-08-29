@@ -14,10 +14,12 @@
 #include <unordered_map>
 #include <vector>
 
-// using chrono types
 using namespace std::chrono_literals;
 
 constexpr std::chrono::seconds LOCK_TIMEOUT = 5s;
+constexpr int MAX_ID_LENGTH = 100;
+constexpr int METADATA_MEM_ID = 1;
+constexpr int DATABASE_MEM_ID = 2;
 
 // Represents the metadata of the database. Contains the version of the database
 // and a hash of the password. This is stored in shared memory and processes can
@@ -43,7 +45,7 @@ struct Database {
   // Must be locked before accessing numEntries
   sem_t lock;
   size_t numEntries;
-  size_t maxEntries;
+  const size_t maxEntries;
   DatabaseEntry<T> entries[];
 };
 
@@ -56,7 +58,7 @@ class SharedDatabase : private Database<T> {
   // with the same identifier already exists, and the password matches, the
   // database will be opened in read-write mode. Otherwise, it will be opened in
   // read-only mode. If the database does not exist, it will be created.
-  SharedDatabase(const std::string &id, std::string &password);
+  SharedDatabase(std::string &password);
 
   // Destroys the shared database. If this is the last process that is using
   // the database, it will be cleaned up from shared memory as well.
@@ -86,10 +88,6 @@ class SharedDatabase : private Database<T> {
   [[nodiscard]] size_t maxSize() const;
 
  private:
-  // The identifier of the database. Used to identify shared memory segments.
-  // Up to 100 characters, containing only letters, digits, and underscores.
-  const std::string id_;
-
   // Named semaphore for tracking the number of processes using the database.
   sem_t *shared_;
 
