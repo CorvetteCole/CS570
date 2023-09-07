@@ -1,7 +1,9 @@
 #include "SharedDatabase.h"
 
+#include <cstring>
 #include <ctime>
 #include <iostream>
+#include <system_error>
 
 template <typename T>
 SharedDatabase<T>::SharedDatabase(std::string &password) {
@@ -13,18 +15,12 @@ SharedDatabase<T>::SharedDatabase(std::string &password) {
   auto metadata_key = ftok(".", METADATA_MEM_ID);
   auto database_key = ftok(".", DATABASE_MEM_ID);
 
-  // check if shared memory segment for metadata exists
-  auto metadata_shmid = shmget(metadata_key, sizeof(DatabaseMetadata), 0);
-  bool metadata_exists = metadata_shmid != -1;
-  if (metadata_exists) {
-    // create shared memory segment for metadata
-    metadata_shmid = shmget(metadata_key, sizeof(DatabaseMetadata),
-                            IPC_CREAT | S_IRUSR | S_IWUSR);
-    if (metadata_shmid != 0) {
-      throw std::runtime_error("Failed to create shared memory segment");
-    }
-
-    // attach temporarily in read-write, initialize metadata, then detach
+  // create shared memory segment for metadata
+  auto metadata_shmid = shmget(metadata_key, sizeof(DatabaseMetadata),
+                               IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
+  // if it didn't already exist, initialize it
+  if (metadata_shmid != -1) {
+    // attach temporarily in read-write, initialize metadata
     auto metadata =
         static_cast<DatabaseMetadata *>(shmat(metadata_shmid, nullptr, 0));
     if (metadata == reinterpret_cast<DatabaseMetadata *>(-1)) {
@@ -32,16 +28,47 @@ SharedDatabase<T>::SharedDatabase(std::string &password) {
     }
     metadata->version = DB_VERSION;
     metadata->passwordHash = passwordHash;
-    if (shmdt(metadata) != 0) {
-      throw std::runtime_error("Failed to detach from shared memory segment");
-    }
+
+    // check if database exists. It shouldn't at this point, throw an error if
+    // it does I guess?
+    // TODO
+
+  } else if (errno != EEXIST) {
+    // catch errors that aren't "already exists"
+    throw std::system_error(
+        errno, std::generic_category(),
+        "Creating database metadata shared memory segment failed");
   }
 
   // attach metadata_ to shared memory segment for metadata in read-only mode
   metadata_ = static_cast<DatabaseMetadata *>(
-      shmat(metadata_shmid, nullptr, metadata_exists ? SHM_RDONLY : 0));
+      shmat(metadata_shmid, nullptr, SHM_RDONLY));
   if (metadata_ == reinterpret_cast<DatabaseMetadata *>(-1)) {
     throw std::runtime_error("Failed to attach to shared memory segment");
+  }
+
+  if (metadata_->version != DB_VERSION) {
+    throw std::runtime_error("Database version mismatch");
+  }
+
+  // check if database exists
+  auto database_shmid = shmget(database_key, 0, 0);
+  bool database_exists = database_shmid != -1;
+
+  if (shmget(database_key, 0, 0) != -1) {
+    // database does not yet exist
+    std::cout << "Database shared memory segment does not exist, creating"
+              << std::endl;
+
+    // TODO DO IT DO IT DO IT DO IT DO IT DO IT
+  }
+
+  if (metadata_->passwordHash == passwordHash) {
+    std::cout << "Opening database in read-write mode" << std::endl;
+
+  } else {
+    std::cout << "Password does not match, opening database in read-only mode"
+              << std::endl;
   }
 
   // Setup shared memory segment(s) to share:

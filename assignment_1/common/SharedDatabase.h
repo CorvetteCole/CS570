@@ -16,10 +16,10 @@
 
 using namespace std::chrono_literals;
 
-constexpr std::chrono::seconds LOCK_TIMEOUT = 5s;
-constexpr int METADATA_MEM_ID = 1;
-constexpr int DATABASE_MEM_ID = 2;
-constexpr int DB_VERSION = 1;
+constexpr static std::chrono::seconds LOCK_TIMEOUT = 5s;
+constexpr static int METADATA_MEM_ID = 1;
+constexpr static int DATABASE_MEM_ID = 2;
+constexpr static int DB_VERSION = 1;
 
 // Represents the metadata of the database. Contains the version of the database
 // and a hash of the password. This is stored in shared memory and processes can
