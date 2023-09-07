@@ -18,22 +18,24 @@ SharedDatabase<T>::SharedDatabase(std::string &password) {
   // create shared memory segment for metadata
   auto metadata_shmid = shmget(metadata_key, sizeof(DatabaseMetadata),
                                IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
-  // if it didn't already exist, initialize it
+
   if (metadata_shmid != -1) {
+    // if it didn't already exist, initialize it
     // attach temporarily in read-write, initialize metadata
     auto metadata =
         static_cast<DatabaseMetadata *>(shmat(metadata_shmid, nullptr, 0));
     if (metadata == reinterpret_cast<DatabaseMetadata *>(-1)) {
-      throw std::runtime_error("Failed to attach to shared memory segment");
+      throw std::system_error(
+          errno, std::generic_category(),
+          "Attaching to database metadata shared memory segment failed");
     }
     metadata->version = DB_VERSION;
     metadata->passwordHash = passwordHash;
 
-    // check if database exists. It shouldn't at this point, throw an error if
-    // it does I guess?
-    // TODO
-
-  } else if (errno != EEXIST) {
+  } else if (errno == EEXIST) {
+    // get shmid of existing database metadata
+    metadata_shmid = shmget(metadata_key, sizeof(DatabaseMetadata), 0);
+  } else {
     // catch errors that aren't "already exists"
     throw std::system_error(
         errno, std::generic_category(),
@@ -44,45 +46,16 @@ SharedDatabase<T>::SharedDatabase(std::string &password) {
   metadata_ = static_cast<DatabaseMetadata *>(
       shmat(metadata_shmid, nullptr, SHM_RDONLY));
   if (metadata_ == reinterpret_cast<DatabaseMetadata *>(-1)) {
-    throw std::runtime_error("Failed to attach to shared memory segment");
+    throw std::system_error(
+        errno, std::generic_category(),
+        "Attaching to database metadata shared memory segment failed");
   }
 
   if (metadata_->version != DB_VERSION) {
     throw std::runtime_error("Database version mismatch");
   }
 
-  // check if database exists
-  auto database_shmid = shmget(database_key, 0, 0);
-  bool database_exists = database_shmid != -1;
-
-  if (shmget(database_key, 0, 0) != -1) {
-    // database does not yet exist
-    std::cout << "Database shared memory segment does not exist, creating"
-              << std::endl;
-
-    // TODO DO IT DO IT DO IT DO IT DO IT DO IT
-  }
-
-  if (metadata_->passwordHash == passwordHash) {
-    std::cout << "Opening database in read-write mode" << std::endl;
-
-  } else {
-    std::cout << "Password does not match, opening database in read-only mode"
-              << std::endl;
-  }
-
-  // Setup shared memory segment(s) to share:
-  // - database
-  // - database metadata
-
-  // Also need to set the named semaphore for tracking processes using the
-  // database
-
-  // Need to handle creating this all if it doesn't exist, or opening it if it
-  // does exist. So the first thing to do is check if a particular shared memory
-  // segment exists whose key is derived from the id as mentioned above.
-
-  // if does not exist, create...
+  // TODO DB setup tasks
 }
 
 template <typename T>
@@ -162,14 +135,9 @@ std::shared_ptr<sem_t> SharedDatabase<T>::acquireSem(sem_t *semaphore) const {
   // Get a lock on the database entry. Da a sem_timedwait() on it and
   // throw an exception if it times out.
   timespec timeout{LOCK_TIMEOUT.count()};
-  switch (sem_timedwait(semaphore, &timeout)) {
-    case 0:
-      break;
-    case ETIMEDOUT:
-      throw std::runtime_error(
-          "Failed to acquire exclusive lock within timeout");
-    default:
-      throw std::runtime_error("Failed to acquire exclusive lock");
+  if (sem_timedwait(semaphore, &timeout) == -1) {
+    throw std::system_error(errno, std::generic_category(),
+                            "Failed to acquire exclusive lock");
   }
 
   // Return a shared pointer to the semaphore, with a custom deleter that
