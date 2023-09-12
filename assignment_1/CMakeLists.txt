@@ -16,10 +16,7 @@ FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download
 FetchContent_MakeAvailable(json)
 
 add_executable(assignment_1 main.cpp
-        common/SharedDatabase.cpp
         common/SharedDatabase.h
-        common/StudentInfo.cpp
-        common/StudentInfo.h
 )
 target_link_libraries(assignment_1 PRIVATE argparse nlohmann_json::nlohmann_json)
 

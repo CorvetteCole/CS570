@@ -1,6 +1,0 @@
-#ifndef ASSIGNMENT_1_STUDENTINFO_H
-#define ASSIGNMENT_1_STUDENTINFO_H
-
-class StudentInfo {};
-
-#endif  // ASSIGNMENT_1_STUDENTINFO_H
