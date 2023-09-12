@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 
-#include <cstdlib>
+#include <random>
 
-#include "SharedDatabase.h"
+#include "SharedDatabase.hpp"
 
 using namespace std::chrono_literals;
 
@@ -21,27 +21,28 @@ constexpr int DB_ID = 175;
 std::vector<StudentInfo> generateRandomStudents(int n) {
   std::vector<StudentInfo> students;
   // init random
-  srand(time(nullptr));
+  std::random_device rd;
+  std::mt19937 gen(rd());
   for (int i = 0; i < n; i++) {
     StudentInfo student{};
     // generate random id
-    student.id = rand() % 1000;
+    student.id = gen() % 1000;
     // generate random name, make sure it is null terminated and the correct
     // length
     for (int j = 0; j < sizeof(student.name) - 1; j++) {
-      student.name[j] = rand() % 26 + 'a';
+      student.name[j] = gen() % 26 + 'a';
     }
     student.name[sizeof(student.name) - 1] = '\0';
     // generate random address, make sure it is null terminated and the correct
     // length
     for (int j = 0; j < sizeof(student.address) - 1; j++) {
-      student.address[j] = rand() % 26 + 'a';
+      student.address[j] = gen() % 26 + 'a';
     }
     student.address[sizeof(student.address) - 1] = '\0';
     // generate random phone, make sure it is null terminated and the correct
     // length
     for (int j = 0; j < sizeof(student.phone) - 1; j++) {
-      student.phone[j] = rand() % 10 + '0';
+      student.phone[j] = gen() % 10 + '0';
     }
     student.phone[sizeof(student.phone) - 1] = '\0';
 
@@ -196,6 +197,11 @@ TEST_F(SharedDatabaseTest, at) {
   fillStudents();
   auto testStudent = generateRandomStudents(1).front();
   auto db_student = db->at(0);
+  db_student->id = testStudent.id;
+  strcpy(db_student->name, testStudent.name);
+  strcpy(db_student->address, testStudent.address);
+  strcpy(db_student->phone, testStudent.phone);
+
   EXPECT_EQ(db_student->id, testStudent.id);
   EXPECT_STREQ(db_student->name, testStudent.name);
   EXPECT_STREQ(db_student->address, testStudent.address);
@@ -205,6 +211,12 @@ TEST_F(SharedDatabaseTest, at) {
   EXPECT_THROW(db->get(0), std::system_error);
   db_student.reset();
   EXPECT_NO_THROW(db->get(0));
+
+  auto db_student2 = db->get(0);
+  EXPECT_EQ(db_student2.id, testStudent.id);
+  EXPECT_STREQ(db_student2.name, testStudent.name);
+  EXPECT_STREQ(db_student2.address, testStudent.address);
+  EXPECT_STREQ(db_student2.phone, testStudent.phone);
 
   // now test that we can't set an index that is out of range
   EXPECT_THROW(db->at(db->size()), std::out_of_range);

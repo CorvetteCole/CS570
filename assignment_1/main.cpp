@@ -1,7 +1,7 @@
 #include <cassert>
 #include <iostream>
 
-#include "SharedDatabase.h"
+#include "SharedDatabase.hpp"
 
 struct StudentInfo {
   int id;

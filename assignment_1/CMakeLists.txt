@@ -17,7 +17,7 @@ FetchContent_MakeAvailable(json)
 
 link_libraries(pthread)
 add_executable(assignment_1 main.cpp
-        SharedDatabase.h
+        SharedDatabase.hpp
 )
 target_link_libraries(assignment_1 PRIVATE argparse nlohmann_json::nlohmann_json)
 
@@ -29,7 +29,7 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
 add_executable(assignment_1_tests
-        SharedDatabase.h
+        SharedDatabase.hpp
         SharedDatabaseTests.cpp
 )
 target_link_libraries(assignment_1_tests PRIVATE gtest_main argparse nlohmann_json::nlohmann_json)

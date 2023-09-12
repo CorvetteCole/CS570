@@ -1,5 +1,5 @@
-#ifndef ASSIGNMENT_1_SHAREDDATABASE_H
-#define ASSIGNMENT_1_SHAREDDATABASE_H
+#ifndef ASSIGNMENT_1_SHAREDDATABASE_HPP
+#define ASSIGNMENT_1_SHAREDDATABASE_HPP
 
 #include <fcntl.h>
 #include <semaphore.h>
@@ -322,4 +322,4 @@ class SharedDatabase {
   };
 };
 
-#endif  // ASSIGNMENT_1_SHAREDDATABASE_H
+#endif  // ASSIGNMENT_1_SHAREDDATABASE_HPP
