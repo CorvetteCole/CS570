@@ -4,6 +4,8 @@
 
 #include "SharedDatabase.h"
 
+using namespace std::chrono_literals;
+
 // must avoid using pointers in the struct
 struct StudentInfo {
   char name[50];
@@ -60,7 +62,7 @@ class SharedDatabaseTest : public ::testing::Test {
     auto database_shmid =
         shmget(database_key, sizeof(Database<StudentInfo>), 0);
     shmctl(database_shmid, IPC_RMID, nullptr);
-    db = new SharedDatabase<StudentInfo>(DB_PASSWORD, DB_ID);
+    db = new SharedDatabase<StudentInfo>(DB_PASSWORD, DB_ID, 50ms);
   }
 
   ~SharedDatabaseTest() override {

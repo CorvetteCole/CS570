@@ -17,7 +17,6 @@
 
 using namespace std::chrono_literals;
 
-constexpr static std::chrono::seconds LOCK_TIMEOUT = 5s;
 constexpr static int METADATA_OFFSET = 1;
 constexpr static int DATABASE_OFFSET = 2;
 constexpr static int DB_VERSION = 1;
@@ -60,25 +59,27 @@ class SharedDatabase {
   // with the same identifier already exists, and the password matches, the
   // database will be opened in read-write mode. Otherwise, it will be opened in
   // read-only mode. If the database does not exist, it will be created.
-  explicit SharedDatabase(std::string &password, int id = 0) {
+  explicit SharedDatabase(std::string &password, int id = 0,
+                          const std::chrono::milliseconds semTimeout = 5s)
+      : semTimeout_(semTimeout) {
     // this is a terrible hash function, but it works for the purposes of this
     // project
     std::size_t passwordHash = std::hash<std::string>{}(password);
 
     // generate key_t using ftok() from current executable file path and the id
-    auto metadata_key = ftok(".", id + METADATA_OFFSET);
-    auto database_key = ftok(".", id + DATABASE_OFFSET);
+    auto metadataKey = ftok(".", id + METADATA_OFFSET);
+    auto databaseKey = ftok(".", id + DATABASE_OFFSET);
 
     // create shared memory segment for metadata
-    auto metadata_shmid = shmget(metadata_key, sizeof(DatabaseMetadata),
-                                 IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
-    bool metadata_created = false;
+    auto metadataShmid = shmget(metadataKey, sizeof(DatabaseMetadata),
+                                IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
+    bool metadataCreated = false;
 
-    if (metadata_shmid != -1) {
+    if (metadataShmid != -1) {
       // if it didn't already exist, initialize it
       // attach temporarily in read-write, initialize metadata
       auto metadata =
-          static_cast<DatabaseMetadata *>(shmat(metadata_shmid, nullptr, 0));
+          static_cast<DatabaseMetadata *>(shmat(metadataShmid, nullptr, 0));
       if (metadata == reinterpret_cast<DatabaseMetadata *>(-1)) {
         throw std::system_error(
             errno, std::generic_category(),
@@ -87,11 +88,11 @@ class SharedDatabase {
       metadata->version = DB_VERSION;
       metadata->passwordHash = passwordHash;
 
-      metadata_created = true;
+      metadataCreated = true;
 
     } else if (errno == EEXIST) {
       // get shmid of existing database metadata
-      metadata_shmid = shmget(metadata_key, sizeof(DatabaseMetadata), 0);
+      metadataShmid = shmget(metadataKey, sizeof(DatabaseMetadata), 0);
     } else {
       // catch errors that aren't "already exists"
       throw std::system_error(
@@ -101,7 +102,7 @@ class SharedDatabase {
 
     // attach metadata_ to shared memory segment for metadata in read-only mode
     metadata_ = static_cast<DatabaseMetadata *>(
-        shmat(metadata_shmid, nullptr, SHM_RDONLY));
+        shmat(metadataShmid, nullptr, SHM_RDONLY));
     if (metadata_ == reinterpret_cast<DatabaseMetadata *>(-1)) {
       throw std::system_error(
           errno, std::generic_category(),
@@ -112,15 +113,14 @@ class SharedDatabase {
       throw std::runtime_error("Database version mismatch");
     }
 
-    // TODO DB setup tasks. Similar to metadata
-    auto database_shmid = shmget(database_key, sizeof(Database<T>),
-                                 IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
+    auto databaseShmid = shmget(databaseKey, sizeof(Database<T>),
+                                IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
 
-    if (database_shmid != -1) {
+    if (databaseShmid != -1) {
       // if it didn't already exist, initialize it
       // attach temporarily in read-write, initialize db
       auto database =
-          static_cast<Database<T> *>(shmat(database_shmid, nullptr, 0));
+          static_cast<Database<T> *>(shmat(databaseShmid, nullptr, 0));
       if (database == reinterpret_cast<Database<T> *>(-1)) {
         throw std::system_error(
             errno, std::generic_category(),
@@ -132,18 +132,18 @@ class SharedDatabase {
       for (size_t i = 0; i < database->maxEntries; i++) {
         sem_init(&database->entries[i].lock, 1, 1);
       }
-    } else if (!metadata_created &&
+    } else if (!metadataCreated &&
                errno == EEXIST) {  // TODO better handle condition where
                                    // metadata didn't exist but we do
       // get shmid of existing database
-      database_shmid = shmget(database_key, sizeof(Database<T>), 0);
+      databaseShmid = shmget(databaseKey, sizeof(Database<T>), 0);
     } else {
       // catch errors that aren't "already exists"
       throw std::system_error(errno, std::generic_category(),
                               "Creating database shared memory segment failed");
     }
 
-    //    std::cout << "Database shmid: " << database_shmid << std::endl;
+    //    std::cout << "Database shmid: " << databaseShmid << std::endl;
 
     readOnly_ = passwordHash != metadata_->passwordHash;
 
@@ -151,7 +151,7 @@ class SharedDatabase {
     // if the password hash does not match
     // TODO maybe rollback the change im making here to disable readonly mount
     database_ = static_cast<Database<T> *>(
-        shmat(database_shmid, nullptr, 0));//readOnly_ ? SHM_RDONLY : 0));
+        shmat(databaseShmid, nullptr, 0));  // readOnly_ ? SHM_RDONLY : 0));
   };
 
   // Destroys the shared database. If this is the last process that is using
@@ -292,13 +292,15 @@ class SharedDatabase {
 
   bool readOnly_;
 
+  std::chrono::milliseconds semTimeout_;
+
   // Locks a semaphore, returning a handle that automatically unlocks it when
   // destroyed.
   [[nodiscard]] std::shared_ptr<sem_t> acquireSem(sem_t *semaphore) const {
     // Get a lock on the database entry. Da a sem_timedwait() on it and
     // throw an exception if it times out.
 
-    auto timeout_time = std::chrono::system_clock::now() + LOCK_TIMEOUT;
+    auto timeout_time = std::chrono::system_clock::now() + semTimeout_;
     timespec timeout{};
     timeout.tv_sec = std::chrono::duration_cast<std::chrono::seconds>(
                          timeout_time.time_since_epoch())
