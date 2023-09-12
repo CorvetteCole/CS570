@@ -18,9 +18,10 @@
 using namespace std::chrono_literals;
 
 constexpr static std::chrono::seconds LOCK_TIMEOUT = 5s;
-constexpr static int METADATA_MEM_ID = 1;
-constexpr static int DATABASE_MEM_ID = 2;
+constexpr static int METADATA_OFFSET = 1;
+constexpr static int DATABASE_OFFSET = 2;
 constexpr static int DB_VERSION = 1;
+constexpr static int MAX_ENTRIES = 50;
 
 // Represents the metadata of the database. Contains the version of the database
 // and a hash of the password. This is stored in shared memory and processes can
@@ -47,7 +48,7 @@ struct Database {
   sem_t lock;
   size_t numEntries;
   size_t maxEntries;
-  DatabaseEntry<T> entries[];
+  DatabaseEntry<T> entries[MAX_ENTRIES];
 };
 
 template <typename T>
@@ -59,18 +60,19 @@ class SharedDatabase {
   // with the same identifier already exists, and the password matches, the
   // database will be opened in read-write mode. Otherwise, it will be opened in
   // read-only mode. If the database does not exist, it will be created.
-  explicit SharedDatabase(std::string &password) {
+  explicit SharedDatabase(std::string &password, int id = 0) {
     // this is a terrible hash function, but it works for the purposes of this
     // project
     std::size_t passwordHash = std::hash<std::string>{}(password);
 
     // generate key_t using ftok() from current executable file path and the id
-    auto metadata_key = ftok(".", METADATA_MEM_ID);
-    auto database_key = ftok(".", DATABASE_MEM_ID);
+    auto metadata_key = ftok(".", id + METADATA_OFFSET);
+    auto database_key = ftok(".", id + DATABASE_OFFSET);
 
     // create shared memory segment for metadata
     auto metadata_shmid = shmget(metadata_key, sizeof(DatabaseMetadata),
                                  IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
+    bool metadata_created = false;
 
     if (metadata_shmid != -1) {
       // if it didn't already exist, initialize it
@@ -84,6 +86,8 @@ class SharedDatabase {
       }
       metadata->version = DB_VERSION;
       metadata->passwordHash = passwordHash;
+
+      metadata_created = true;
 
     } else if (errno == EEXIST) {
       // get shmid of existing database metadata
@@ -122,13 +126,15 @@ class SharedDatabase {
             errno, std::generic_category(),
             "Attaching to database shared memory segment failed");
       }
+      database->maxEntries = MAX_ENTRIES;
       database->numEntries = 0;
-      database->maxEntries = 100;
       sem_init(&database->lock, 1, 1);
       for (size_t i = 0; i < database->maxEntries; i++) {
         sem_init(&database->entries[i].lock, 1, 1);
       }
-    } else if (errno == EEXIST) {
+    } else if (!metadata_created &&
+               errno == EEXIST) {  // TODO better handle condition where
+                                   // metadata didn't exist but we do
       // get shmid of existing database
       database_shmid = shmget(database_key, sizeof(Database<T>), 0);
     } else {
@@ -137,7 +143,7 @@ class SharedDatabase {
                               "Creating database shared memory segment failed");
     }
 
-    std::cout << "Database shmid: " << database_shmid << std::endl;
+//    std::cout << "Database shmid: " << database_shmid << std::endl;
 
     // attach database_ to shared memory segment for database in read-only mode
     // if the password hash does not match
@@ -151,7 +157,7 @@ class SharedDatabase {
   ~SharedDatabase() = default;
 
   // Returns a copy of the element at the given index.
-  T operator[](size_t index) const {  // check if index is within bounds
+  T get(size_t index) const {
     if (index >= database_->numEntries) {
       throw std::out_of_range("Index out of bounds");
     }
@@ -159,6 +165,17 @@ class SharedDatabase {
     auto lock = acquireSem(&database_->entries[index].lock);
     // Return a copy of the data
     return database_->entries[index].data;
+  }
+
+  // Clear all elements in the database
+  void clear() {
+    auto countLock = acquireSem(&database_->lock);
+    // lock all entries
+    for (size_t i = 0; i < database_->numEntries; i++) {
+      auto entryLock = acquireSem(&database_->entries[i].lock);
+      database_->entries[i].data = {};
+    }
+    database_->numEntries = 0;
   }
 
   // Returns a shared pointer to the element at the given index. The database is
@@ -225,12 +242,32 @@ class SharedDatabase {
 
   // Returns the number of elements in the database.
   [[nodiscard]] size_t size() const {
+//    std::cout << "size()" << std::endl;
     auto lock = acquireSem(&database_->lock);
     return database_->numEntries;
   };
 
+  // Returns a shared pointer to the size of the database.
+  //
+  // The consumer cannot edit the size of the database, but can read it. This
+  // also guarantees that the size of the database will not change while the
+  // consumer is holding the shared pointer.
+  [[nodiscard]] std::shared_ptr<size_t> smartSize() const {
+//    std::cout << "smartSize()" << std::endl;
+    auto lock = acquireSem(&database_->lock);
+    return std::shared_ptr<size_t>(
+        &database_->numEntries, [lock](size_t *size) {
+          std::cout << "smartSize() deleter" << std::endl;
+          // do nothing, but hold a reference to the lock in the deleter so that
+          // it doesn't get destroyed before the shared pointer
+        });
+  }
+
   // Returns the maximum number of elements in the database.
-  [[nodiscard]] size_t maxSize() const { return database_->maxEntries; };
+  [[nodiscard]] size_t maxSize() const {
+    auto countLock = acquireSem(&database_->lock);
+    return database_->maxEntries;
+  };
 
  private:
   // Database metadata
@@ -239,8 +276,8 @@ class SharedDatabase {
   // Database
   Database<T> *database_;
 
-  // Locks a semaphore associated with the given index. Automatically unlock
-  // the semaphore when the returned shared pointer is destroyed.
+  // Locks a semaphore, returning a handle that automatically unlocks it when
+  // destroyed.
   [[nodiscard]] std::shared_ptr<sem_t> acquireSem(sem_t *semaphore) const {
     // Get a lock on the database entry. Da a sem_timedwait() on it and
     // throw an exception if it times out.
@@ -258,6 +295,7 @@ class SharedDatabase {
     // Return a shared pointer to the semaphore, with a custom deleter that
     // unlocks the semaphore
     return std::shared_ptr<sem_t>(semaphore, [](sem_t *sem) {
+//      std::cout << "Releasing lock" << std::endl;
       if (sem_post(sem) == -1) {
         throw std::system_error(errno, std::generic_category(),
                                 "Failed to release exclusive lock");
