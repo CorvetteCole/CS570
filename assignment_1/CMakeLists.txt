@@ -15,7 +15,7 @@ FetchContent_MakeAvailable(argparse)
 FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.11.2/json.tar.xz)
 FetchContent_MakeAvailable(json)
 
-
+link_libraries(pthread)
 add_executable(assignment_1 main.cpp
         SharedDatabase.h
 )
