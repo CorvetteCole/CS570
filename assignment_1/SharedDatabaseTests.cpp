@@ -55,7 +55,7 @@ class SharedDatabaseTest : public ::testing::Test {
     auto database_key = ftok(".", DB_ID + DATABASE_OFFSET);
 
     auto metadata_shmid = shmget(metadata_key, sizeof(DatabaseMetadata), 0);
-//    std::cout << "Deleting existing shared memory segments" << std::endl;
+    //    std::cout << "Deleting existing shared memory segments" << std::endl;
     shmctl(metadata_shmid, IPC_RMID, nullptr);
     auto database_shmid =
         shmget(database_key, sizeof(Database<StudentInfo>), 0);
@@ -108,6 +108,35 @@ TEST_F(SharedDatabaseTest, coexist_basic) {
     EXPECT_STREQ(db_student.address, db2_student.address);
     EXPECT_STREQ(db_student.phone, db2_student.phone);
   }
+
+  // verify that changes on db2 are reflected on db
+  auto testStudent = generateRandomStudents(1).front();
+  db2.set(0, testStudent);
+  auto db_student = db->get(0);
+  EXPECT_EQ(db_student.id, testStudent.id);
+  EXPECT_STREQ(db_student.name, testStudent.name);
+  EXPECT_STREQ(db_student.address, testStudent.address);
+  EXPECT_STREQ(db_student.phone, testStudent.phone);
+}
+
+TEST_F(SharedDatabaseTest, coexist_readonly) {
+  fillStudents();
+  std::string incorrectPassword = "nooooo";
+  auto db2 = SharedDatabase<StudentInfo>(incorrectPassword, DB_ID);
+  EXPECT_EQ(db2.size(), db->size());
+  // verify that the students are the same on both databases
+  for (int i = 0; i < db->size(); i++) {
+    auto db_student = db->get(i);
+    auto db2_student = db2.get(i);
+    EXPECT_EQ(db_student.id, db2_student.id);
+    EXPECT_STREQ(db_student.name, db2_student.name);
+    EXPECT_STREQ(db_student.address, db2_student.address);
+    EXPECT_STREQ(db_student.phone, db2_student.phone);
+  }
+
+  // attempt to modify the database
+  EXPECT_THROW(db2.set(0, generateRandomStudents(1).front()),
+               std::runtime_error);
 }
 
 TEST_F(SharedDatabaseTest, start_empty) { EXPECT_EQ(db->size(), 0); }

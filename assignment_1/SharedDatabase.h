@@ -143,13 +143,15 @@ class SharedDatabase {
                               "Creating database shared memory segment failed");
     }
 
-//    std::cout << "Database shmid: " << database_shmid << std::endl;
+    //    std::cout << "Database shmid: " << database_shmid << std::endl;
+
+    readOnly_ = passwordHash != metadata_->passwordHash;
 
     // attach database_ to shared memory segment for database in read-only mode
     // if the password hash does not match
+    // TODO maybe rollback the change im making here to disable readonly mount
     database_ = static_cast<Database<T> *>(
-        shmat(database_shmid, nullptr,
-              passwordHash != metadata_->passwordHash ? SHM_RDONLY : 0));
+        shmat(database_shmid, nullptr, 0));//readOnly_ ? SHM_RDONLY : 0));
   };
 
   // Destroys the shared database. If this is the last process that is using
@@ -169,6 +171,9 @@ class SharedDatabase {
 
   // Clear all elements in the database
   void clear() {
+    if (readOnly_) {
+      throw std::runtime_error("Database is read-only");
+    }
     auto countLock = acquireSem(&database_->lock);
     // lock all entries
     for (size_t i = 0; i < database_->numEntries; i++) {
@@ -182,6 +187,9 @@ class SharedDatabase {
   // locked while the pointer is in use, and unlocked when the pointer is
   // destroyed.
   [[nodiscard]] std::shared_ptr<T> at(size_t index) {
+    if (readOnly_) {
+      throw std::runtime_error("Database is read-only");
+    }
     // check if index is within bounds
     if (index >= database_->numEntries) {
       throw std::out_of_range("Index out of bounds");
@@ -198,6 +206,9 @@ class SharedDatabase {
 
   // Deletes the element at the given index.
   void erase(size_t index) {
+    if (readOnly_) {
+      throw std::runtime_error("Database is read-only");
+    }
     // check if index is within bounds
     if (index >= database_->numEntries) {
       throw std::out_of_range("Index out of bounds");
@@ -231,6 +242,11 @@ class SharedDatabase {
 
   // Sets the element at the given index to the given data.
   void set(size_t index, T data) {
+    // check if we are in read-only mode
+    if (readOnly_) {
+      throw std::runtime_error("Database is read-only");
+    }
+
     // check if index is within bounds
     if (index >= database_->numEntries) {
       throw std::out_of_range("Index out of bounds");
@@ -242,7 +258,7 @@ class SharedDatabase {
 
   // Returns the number of elements in the database.
   [[nodiscard]] size_t size() const {
-//    std::cout << "size()" << std::endl;
+    //    std::cout << "size()" << std::endl;
     auto lock = acquireSem(&database_->lock);
     return database_->numEntries;
   };
@@ -253,7 +269,7 @@ class SharedDatabase {
   // also guarantees that the size of the database will not change while the
   // consumer is holding the shared pointer.
   [[nodiscard]] std::shared_ptr<size_t> smartSize() const {
-//    std::cout << "smartSize()" << std::endl;
+    //    std::cout << "smartSize()" << std::endl;
     auto lock = acquireSem(&database_->lock);
     return std::shared_ptr<size_t>(
         &database_->numEntries, [lock](size_t *size) {
@@ -270,11 +286,11 @@ class SharedDatabase {
   };
 
  private:
-  // Database metadata
   DatabaseMetadata *metadata_;
 
-  // Database
   Database<T> *database_;
+
+  bool readOnly_;
 
   // Locks a semaphore, returning a handle that automatically unlocks it when
   // destroyed.
@@ -295,7 +311,7 @@ class SharedDatabase {
     // Return a shared pointer to the semaphore, with a custom deleter that
     // unlocks the semaphore
     return std::shared_ptr<sem_t>(semaphore, [](sem_t *sem) {
-//      std::cout << "Releasing lock" << std::endl;
+      //      std::cout << "Releasing lock" << std::endl;
       if (sem_post(sem) == -1) {
         throw std::system_error(errno, std::generic_category(),
                                 "Failed to release exclusive lock");
