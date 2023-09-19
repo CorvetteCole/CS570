@@ -2,11 +2,6 @@
 
 ## Specification Differences
 
-Here are a list of places where I deviated from the given specification to build a more robust program.
-
-- example 3
-- example 2
-
 TL;DR: Database is loaded or created automatically when ran, querying, loading, printing, changing, etc can be done
 interactively via one program.
 
@@ -25,14 +20,13 @@ make
 
 | Argument | Long       | Type   | Default | Description                                                                      |
 |----------|------------|--------|---------|----------------------------------------------------------------------------------|
-| -h       | --help     | flag   | N/A     | Print help message                                                               |
-| -v       | --verbose  | flag   | N/A     | Enable verbose output                                                            |
+| -h       | --help     | flag   | N/A     | Print help message                                                               ||
 | -p       | --password | string | N/A     | Password for the database, enables write-mode when matching existing             |
 | -c       | --clean    | flag   | N/A     | Cleanup shared memory on exit                                                    |
 | -l       | --load     | string | N/A     | Load the database from the specified file                                        |
 | -o       | --output   | string | N/A     | Save the database to the specified file, or print to the console if not provided |
 | -q       | --query    | string | N/A     | Query the database for the specified student ID                                  |
-| -s       | --sleep    | int    | 0       | Sleep for the specified number of seconds after requesting a semaphore           |
+| -s       | --sleep    | int    | 0       | Sleep for the specified number of seconds after acquiring a semaphore            |
 
 ### Assignment Examples
 

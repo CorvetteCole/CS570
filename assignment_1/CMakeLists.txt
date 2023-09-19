@@ -11,17 +11,13 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(argparse)
 
-# fetch latest nlohmann/json
-FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.11.2/json.tar.xz)
-FetchContent_MakeAvailable(json)
-
 link_libraries(pthread)
 add_executable(assignment_1 main.cpp
         SharedDatabase.hpp
         Utilities.cpp
         Utilities.h
 )
-target_link_libraries(assignment_1 PRIVATE argparse nlohmann_json::nlohmann_json)
+target_link_libraries(assignment_1 PRIVATE argparse)
 
 enable_testing()
 
@@ -36,7 +32,7 @@ add_executable(assignment_1_tests
         Utilities.cpp
         Utilities.h
 )
-target_link_libraries(assignment_1_tests PRIVATE gtest_main argparse nlohmann_json::nlohmann_json)
+target_link_libraries(assignment_1_tests PRIVATE gtest_main argparse)
 include(GoogleTest)
 gtest_discover_tests(assignment_1_tests)
 
