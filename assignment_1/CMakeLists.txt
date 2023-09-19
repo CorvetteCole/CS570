@@ -18,6 +18,8 @@ FetchContent_MakeAvailable(json)
 link_libraries(pthread)
 add_executable(assignment_1 main.cpp
         SharedDatabase.hpp
+        Utilities.cpp
+        Utilities.h
 )
 target_link_libraries(assignment_1 PRIVATE argparse nlohmann_json::nlohmann_json)
 
@@ -31,6 +33,8 @@ FetchContent_MakeAvailable(googletest)
 add_executable(assignment_1_tests
         SharedDatabase.hpp
         SharedDatabaseTests.cpp
+        Utilities.cpp
+        Utilities.h
 )
 target_link_libraries(assignment_1_tests PRIVATE gtest_main argparse nlohmann_json::nlohmann_json)
 include(GoogleTest)

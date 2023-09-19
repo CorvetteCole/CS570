@@ -15,44 +15,42 @@
 #include <unordered_map>
 #include <vector>
 
+#include "Utilities.h"
+
 using namespace std::chrono_literals;
 
-constexpr static int METADATA_OFFSET = 1;
-constexpr static int DATABASE_OFFSET = 2;
-constexpr static int DB_VERSION = 1;
+constexpr static int METADATA_OFFSET = 0;
+constexpr static int DATABASE_OFFSET = 1;
+constexpr static int DB_VERSION = 2;
 constexpr static int MAX_ENTRIES = 50;
 
-// Represents the metadata of the database. Contains the version of the database
-// and a hash of the password. This is stored in shared memory and processes can
-// use it to determine if they should mount the database shared memory segment
-// as read-only or read-write.
 struct DatabaseMetadata {
+  // Must be locked before editing the metadata
+  sem_t lock;
   uint32_t version;
   std::size_t passwordHash;
-};
-
-template <typename T>
-// Represents a single entry in the database. Contains the data and a semaphore
-// for locking the entry.
-struct DatabaseEntry {
-  sem_t lock;
-  T data;
-};
-
-template <typename T>
-// Represents the database. Contains metadata about the database; a hash of the
-// password, and an array of entries.
-struct Database {
-  // Must be locked before accessing numEntries
-  sem_t lock;
+  int readerCount;
   size_t numEntries;
   size_t maxEntries;
-  DatabaseEntry<T> entries[MAX_ENTRIES];
 };
 
 template <typename T>
-// Implements a database of objects, stored in shared memory, that can be
-// accessed by multiple processes concurrently.
+struct Database {
+  // Must be locked before editing the database
+  sem_t lock;
+  T entries[MAX_ENTRIES];
+};
+
+struct StudentInfo {
+  char name[51];
+  int id;
+  char address[251];
+  char phone[11];
+};
+
+// template <typename T>
+//  Implements a database of objects, stored in shared memory, that can be
+//  accessed by multiple processes concurrently.
 class SharedDatabase {
  public:
   // Creates a new shared database with the given identifier. If a database
@@ -60,8 +58,10 @@ class SharedDatabase {
   // database will be opened in read-write mode. Otherwise, it will be opened in
   // read-only mode. If the database does not exist, it will be created.
   explicit SharedDatabase(std::string &password, int id = 0,
-                          const std::chrono::milliseconds semTimeout = 5s)
-      : semTimeout_(semTimeout) {
+                          const std::chrono::milliseconds semTimeout = 5s,
+                          const std::chrono::milliseconds semSleep = 0s,
+                          const bool clean = false)
+      : semTimeout_(semTimeout), clean_(clean), semSleep_(semSleep) {
     // this is a terrible hash function, but it works for the purposes of this
     // project
     std::size_t passwordHash = std::hash<std::string>{}(password);
@@ -71,255 +71,217 @@ class SharedDatabase {
     auto databaseKey = ftok(".", id + DATABASE_OFFSET);
 
     // create shared memory segment for metadata
-    auto metadataShmid = shmget(metadataKey, sizeof(DatabaseMetadata),
-                                IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
-    bool metadataCreated = false;
+    metadataShmid_ = shmget(metadataKey, sizeof(DatabaseMetadata),
+                            IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
 
-    if (metadataShmid != -1) {
-      // if it didn't already exist, initialize it
-      // attach temporarily in read-write, initialize metadata
-      auto metadata =
-          static_cast<DatabaseMetadata *>(shmat(metadataShmid, nullptr, 0));
-      if (metadata == reinterpret_cast<DatabaseMetadata *>(-1)) {
+    if (metadataShmid_ != 1 || errno == EEXIST) {
+      if (errno == EEXIST) {
+        // get shmid of existing database metadata
+        metadataShmid_ = shmget(metadataKey, sizeof(DatabaseMetadata), 0);
+      }
+      // attach metadata_ to shared memory segment
+      metadata_ =
+          static_cast<DatabaseMetadata *>(shmat(metadataShmid_, nullptr, 0));
+      if (metadata_ == reinterpret_cast<DatabaseMetadata *>(-1)) {
         throw std::system_error(
             errno, std::generic_category(),
             "Attaching to database metadata shared memory segment failed");
       }
-      metadata->version = DB_VERSION;
-      metadata->passwordHash = passwordHash;
 
-      metadataCreated = true;
+      // if the metadata segment was created, initialize it
+      if (errno != EEXIST) {
+        sem_init(&metadata_->lock, 1, 1);
+        auto metadataLock = acquireSem(&metadata_->lock);
+        metadata_->version = DB_VERSION;
+        metadata_->passwordHash = passwordHash;
+        metadata_->readerCount = 0;
+        metadata_->numEntries = 0;
+        metadata_->maxEntries = MAX_ENTRIES;
+        metadataLock.reset();
+      }
 
-    } else if (errno == EEXIST) {
-      // get shmid of existing database metadata
-      metadataShmid = shmget(metadataKey, sizeof(DatabaseMetadata), 0);
     } else {
-      // catch errors that aren't "already exists"
       throw std::system_error(
           errno, std::generic_category(),
-          "Creating database metadata shared memory segment failed");
-    }
-
-    // attach metadata_ to shared memory segment for metadata in read-only mode
-    metadata_ = static_cast<DatabaseMetadata *>(
-        shmat(metadataShmid, nullptr, SHM_RDONLY));
-    if (metadata_ == reinterpret_cast<DatabaseMetadata *>(-1)) {
-      throw std::system_error(
-          errno, std::generic_category(),
-          "Attaching to database metadata shared memory segment failed");
+          "Creating/attaching database metadata shared memory segment failed");
     }
 
     if (metadata_->version != DB_VERSION) {
       throw std::runtime_error("Database version mismatch");
     }
 
-    auto databaseShmid = shmget(databaseKey, sizeof(Database<T>),
-                                IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
+    readOnly_ = passwordHash != metadata_->passwordHash;
 
-    if (databaseShmid != -1) {
-      // if it didn't already exist, initialize it
-      // attach temporarily in read-write, initialize db
-      auto database =
-          static_cast<Database<T> *>(shmat(databaseShmid, nullptr, 0));
-      if (database == reinterpret_cast<Database<T> *>(-1)) {
+    databaseShmid_ = shmget(databaseKey, sizeof(Database<StudentInfo>),
+                            IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
+
+    if (databaseShmid_ != -1 || errno == EEXIST) {
+      if (errno == EEXIST) {
+        // get shmid of existing database
+        databaseShmid_ = shmget(databaseKey, sizeof(Database<StudentInfo>), 0);
+      }
+
+      // attach database_ to shared memory segment
+      database_ = static_cast<Database<StudentInfo> *>(
+          shmat(databaseShmid_, nullptr, 0));
+      if (database_ == reinterpret_cast<Database<StudentInfo> *>(-1)) {
         throw std::system_error(
             errno, std::generic_category(),
             "Attaching to database shared memory segment failed");
       }
-      database->maxEntries = MAX_ENTRIES;
-      database->numEntries = 0;
-      sem_init(&database->lock, 1, 1);
-      for (size_t i = 0; i < database->maxEntries; i++) {
-        sem_init(&database->entries[i].lock, 1, 1);
+      if (errno != EEXIST) {
+        sem_init(&database_->lock, 1, 1);
       }
-    } else if (!metadataCreated &&
-               errno == EEXIST) {  // TODO better handle condition where
-                                   // metadata didn't exist but we do
-      // get shmid of existing database
-      databaseShmid = shmget(databaseKey, sizeof(Database<T>), 0);
     } else {
-      // catch errors that aren't "already exists"
-      throw std::system_error(errno, std::generic_category(),
-                              "Creating database shared memory segment failed");
+      throw std::system_error(
+          errno, std::generic_category(),
+          "Creating/attaching database shared memory segment failed");
     }
-
     //    std::cout << "Database shmid: " << databaseShmid << std::endl;
-
-    readOnly_ = passwordHash != metadata_->passwordHash;
-
-    // attach database_ to shared memory segment for database in read-only mode
-    // if the password hash does not match
-    // TODO maybe rollback the change im making here to disable readonly mount
-    database_ = static_cast<Database<T> *>(
-        shmat(databaseShmid, nullptr, 0));  // readOnly_ ? SHM_RDONLY : 0));
   };
 
-  // Destroys the shared database. If this is the last process that is using
-  // the database, it will be cleaned up from shared memory as well.
-  ~SharedDatabase() = default;
+  ~SharedDatabase() {
+    if (clean_) {
+      shmctl(metadataShmid_, IPC_RMID, nullptr);
+      shmctl(databaseShmid_, IPC_RMID, nullptr);
+    }
+  };
 
   // Returns a copy of the element at the given index.
-  T get(size_t index) const {
-    if (index >= database_->numEntries) {
+  [[nodiscard]] StudentInfo get(size_t index) const {
+    if (index >= metadata_->numEntries) {
       throw std::out_of_range("Index out of bounds");
     }
 
-    auto lock = acquireSem(&database_->entries[index].lock);
+    auto readLock = getReadLock();
     // Return a copy of the data
-    return database_->entries[index].data;
+    return database_->entries[index];
   }
 
   // Clear all elements in the database
   void clear() {
-    if (readOnly_) {
-      throw std::runtime_error("Database is read-only");
+    auto writeLock = getWriteLock();
+    for (size_t i = 0; i < metadata_->numEntries; i++) {
+      database_->entries[i] = {};
     }
-    auto countLock = acquireSem(&database_->lock);
-    // lock all entries
-    for (size_t i = 0; i < database_->numEntries; i++) {
-      auto entryLock = acquireSem(&database_->entries[i].lock);
-      database_->entries[i].data = {};
-    }
-    database_->numEntries = 0;
+    metadata_->numEntries = 0;
   }
 
   // Returns a shared pointer to the element at the given index. The database is
   // locked while the pointer is in use, and unlocked when the pointer is
   // destroyed.
-  [[nodiscard]] std::shared_ptr<T> at(size_t index) {
-    if (readOnly_) {
-      throw std::runtime_error("Database is read-only");
-    }
+  [[nodiscard]] std::shared_ptr<StudentInfo> at(size_t index) {
     // check if index is within bounds
-    if (index >= database_->numEntries) {
+    if (index >= metadata_->numEntries) {
       throw std::out_of_range("Index out of bounds");
     }
 
-    auto lock = acquireSem(&database_->entries[index].lock);
-    // Return a shared pointer to the data, with a custom deleter that unlocks
-    // the entry
-    return std::shared_ptr<T>(&database_->entries[index].data, [lock](T *data) {
-      // do nothing, the lock will be released when the shared pointer is
-      // destroyed
-    });
+    auto writeLock = getWriteLock();
+    // Return a shared pointer to the data, with a deleter that holds a
+    // reference to the lock pointer until
+    return {&database_->entries[index], [writeLock](StudentInfo *data) {}};
   };
 
   // Deletes the element at the given index.
   void erase(size_t index) {
-    if (readOnly_) {
-      throw std::runtime_error("Database is read-only");
-    }
     // check if index is within bounds
-    if (index >= database_->numEntries) {
+    if (index >= metadata_->numEntries) {
       throw std::out_of_range("Index out of bounds");
     }
 
     // decrement numEntries
-    auto countLock = acquireSem(&database_->lock);
-    std::vector<std::shared_ptr<sem_t>> locks;
-    // lock all entries after the one being deleted
-    for (size_t i = index; i < database_->numEntries; i++) {
-      locks.push_back(acquireSem(&database_->entries[i].lock));
-    }
+    auto writeLock = getWriteLock();
     // shift all entries after the one being deleted down by one
-    for (size_t i = index; i < database_->numEntries - 1; i++) {
-      database_->entries[i].data = database_->entries[i + 1].data;
+    for (size_t i = index; i < metadata_->numEntries - 1; i++) {
+      database_->entries[i] = database_->entries[i + 1];
     }
-    database_->numEntries--;
+    metadata_->numEntries--;
   };
 
   // Adds an element to the end of the database.
-  void push_back(T data) {
-    if (database_->numEntries >= database_->maxEntries) {
+  void push_back(StudentInfo data) {
+    if (metadata_->numEntries >= metadata_->maxEntries) {
       throw std::out_of_range("Database is full");
     }
-    auto countLock = acquireSem(&database_->lock);
-    auto entryLock =
-        acquireSem(&database_->entries[database_->numEntries].lock);
-    database_->entries[database_->numEntries].data = data;
-    database_->numEntries++;
+    auto writeLock = getWriteLock();
+    database_->entries[metadata_->numEntries] = data;
+    metadata_->numEntries++;
   };
 
   // Sets the element at the given index to the given data.
-  void set(size_t index, T data) {
-    // check if we are in read-only mode
+  void set(size_t index, StudentInfo data) {
+    // check if index is within bounds
+    if (index >= metadata_->numEntries) {
+      throw std::out_of_range("Index out of bounds");
+    }
+
+    auto writeLock = getWriteLock();
+    database_->entries[index] = data;
+  };
+
+  // Returns the number of elements in the database.
+  [[nodiscard]] size_t size() const { return metadata_->numEntries; };
+
+  // Returns a shared pointer to the size of the database.
+  //
+  // This guarantees that the size of the database will not change while the
+  // consumer is holding the shared pointer.
+  [[nodiscard]] std::shared_ptr<size_t> smartSize() const {
+    auto readLock = getReadLock();
+    return {&metadata_->numEntries, [readLock](size_t *size) {
+              std::cout << "smartSize() deleter" << std::endl;
+              // do nothing, but hold a reference to the lock in the deleter so
+              // that it doesn't get destroyed before the shared pointer
+            }};
+  }
+
+  // Returns the maximum number of elements in the database.
+  [[nodiscard]] size_t maxSize() const { return metadata_->maxEntries; };
+
+ private:
+  DatabaseMetadata *metadata_;
+  Database<StudentInfo> *database_;
+  bool readOnly_;
+  bool clean_;
+  std::chrono::milliseconds semTimeout_;
+  std::chrono::milliseconds semSleep_;
+  int metadataShmid_;
+  int databaseShmid_;
+
+  // readLock(). Returns something that automatically unlocks the semaphore when
+  // destroyed. (out of scope)
+  [[nodiscard]] std::shared_ptr<void> getReadLock() const {
+    runWithLock(
+        &metadata_->lock, [&]() { metadata_->readerCount++; }, semTimeout_);
+    std::this_thread::sleep_for(semSleep_);
+    // can't just init a shared_ptr<void> with nullptr
+    return {nullptr, [this](void *) {
+              runWithLock(
+                  &metadata_->lock, [&]() { metadata_->readerCount--; },
+                  semTimeout_);
+            }};
+  }
+
+  [[nodiscard]] std::shared_ptr<void> getWriteLock() const {
+    // throw an error if we are in read-only mode
     if (readOnly_) {
       throw std::runtime_error("Database is read-only");
     }
 
-    // check if index is within bounds
-    if (index >= database_->numEntries) {
-      throw std::out_of_range("Index out of bounds");
-    }
-
-    auto lock = acquireSem(&database_->entries[index].lock);
-    database_->entries[index].data = data;
-  };
-
-  // Returns the number of elements in the database.
-  [[nodiscard]] size_t size() const {
-    //    std::cout << "size()" << std::endl;
-    auto lock = acquireSem(&database_->lock);
-    return database_->numEntries;
-  };
-
-  // Returns a shared pointer to the size of the database.
-  //
-  // The consumer cannot edit the size of the database, but can read it. This
-  // also guarantees that the size of the database will not change while the
-  // consumer is holding the shared pointer.
-  [[nodiscard]] std::shared_ptr<size_t> smartSize() const {
-    //    std::cout << "smartSize()" << std::endl;
-    auto lock = acquireSem(&database_->lock);
-    return std::shared_ptr<size_t>(
-        &database_->numEntries, [lock](size_t *size) {
-          std::cout << "smartSize() deleter" << std::endl;
-          // do nothing, but hold a reference to the lock in the deleter so that
-          // it doesn't get destroyed before the shared pointer
-        });
-  }
-
-  // Returns the maximum number of elements in the database.
-  [[nodiscard]] size_t maxSize() const {
-    auto countLock = acquireSem(&database_->lock);
-    return database_->maxEntries;
-  };
-
- private:
-  DatabaseMetadata *metadata_;
-
-  Database<T> *database_;
-
-  bool readOnly_;
-
-  std::chrono::milliseconds semTimeout_;
-
-  // Locks a semaphore, returning a handle that automatically unlocks it when
-  // destroyed.
-  [[nodiscard]] std::shared_ptr<sem_t> acquireSem(sem_t *semaphore) const {
-    // Get a lock on the database entry. Da a sem_timedwait() on it and
-    // throw an exception if it times out.
-
-    auto timeout_time = std::chrono::system_clock::now() + semTimeout_;
-    timespec timeout{};
-    timeout.tv_sec = std::chrono::duration_cast<std::chrono::seconds>(
-                         timeout_time.time_since_epoch())
-                         .count();
-    if (sem_timedwait(semaphore, &timeout) == -1) {
-      throw std::system_error(errno, std::generic_category(),
-                              "Failed to acquire exclusive lock");
-    }
-
-    // Return a shared pointer to the semaphore, with a custom deleter that
-    // unlocks the semaphore
-    return std::shared_ptr<sem_t>(semaphore, [](sem_t *sem) {
-      //      std::cout << "Releasing lock" << std::endl;
-      if (sem_post(sem) == -1) {
-        throw std::system_error(errno, std::generic_category(),
-                                "Failed to release exclusive lock");
+    auto currentTime = std::chrono::system_clock::now();
+    // while there are readers, wait for them to finish. Use the semTimeout_
+    // to prevent deadlock
+    while (metadata_->readerCount > 0) {
+      if (std::chrono::system_clock::now() - currentTime > semTimeout_) {
+        throw std::runtime_error("Timed out waiting for readers to finish");
       }
-    });
-  };
+      std::this_thread::sleep_for(1ms);  // so we don't spinlock
+    }
+    auto metadataLock = acquireSem(&metadata_->lock);
+    auto databaseLock = acquireSem(&database_->lock);
+    std::this_thread::sleep_for(semSleep_);
+    return {nullptr, [metadataLock, databaseLock](void *) {}};
+  }
 };
 
 #endif  // ASSIGNMENT_1_SHAREDDATABASE_HPP
