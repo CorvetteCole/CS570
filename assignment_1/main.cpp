@@ -26,10 +26,7 @@ int main(int argc, char **argv) {
   program.add_argument("-l", "--load")
       .help("load the database from the specified file");
   program.add_argument("-o", "--output")
-      .help(
-          "save the database to the specified file or to stdout if not "
-          "provided")
-      .implicit_value(std::string("console"));
+      .help("save the database to the specified file");
   program.add_argument("-q", "--query")
       .help("query the database for the specified student ID")
       .scan<'i', int>();
@@ -118,15 +115,6 @@ int main(int argc, char **argv) {
         file << student.phone << std::endl;
       }
       file.close();
-    } else {
-      std::cout << "== Students ==" << std::endl;
-      for (int i = 0; i < db.size(); i++) {
-        auto student = db.get(i);
-        std::cout << "Name: " << student.name << std::endl;
-        std::cout << "ID: " << student.id << std::endl;
-        std::cout << "Address: " << student.address << std::endl;
-        std::cout << "Phone: " << student.phone << std::endl << std::endl;
-      }
     }
   }
 
@@ -135,7 +123,8 @@ int main(int argc, char **argv) {
     std::cout << "1. Add new student" << std::endl;
     std::cout << "2. Delete student" << std::endl;
     std::cout << "3. Update student" << std::endl;
-    std::cout << "4. Exit" << std::endl;
+    std::cout << "4. Print students" << std::endl;
+    std::cout << "5. Exit" << std::endl;
     std::cout << "Enter a command: ";
     int command;
     std::cin >> command;
@@ -215,9 +204,22 @@ int main(int argc, char **argv) {
         std::strncpy(student->phone, phone.c_str(), 11);
         break;
       }
-      default:
+
+      case 4: {
+        std::cout << "== Students ==" << std::endl;
+        for (int i = 0; i < db.size(); i++) {
+          auto student = db.get(i);
+          std::cout << "Name: " << student.name << std::endl;
+          std::cout << "ID: " << student.id << std::endl;
+          std::cout << "Address: " << student.address << std::endl;
+          std::cout << "Phone: " << student.phone << std::endl << std::endl;
+        }
+        break;
+      }
+      default: {
         shouldExit = true;
         break;
+      }
     }
   }
 }

@@ -1,5 +1,11 @@
 # CS570 Assignment 1
 
+If I had a little more time than this would be a bit better done. The basic gist is:
+
+- `main.cpp`: contains the argparsing and general interaction with the user
+- `SharedDatabase.hpp`: contains the database class and all the functions that interact with it
+- `SharedDatabaseTests.cpp`: contains the unit tests for the database class
+
 ## Specification Differences
 
 TL;DR: Database is loaded or created automatically when ran, querying, loading, printing, changing, etc can be done
@@ -30,22 +36,24 @@ make
 
 ### Assignment Examples
 
-Here are some examples on how to perform the actions specificed in the assignment document. Note that `-s` can be used
-to simulate a delay when semaphores are acquired, and `-v` can be used to enable more verbose output.
+Here are some examples on how to perform the actions specified in the assignment document. Note that `-s` can be used
+to simulate a delay when semaphores are acquired.
 
 #### Load
 
 ```shell
-./assignment_1 -l data.json -p password
+./assignment_1 -l sample_input.txt -p password
 ```
 
 #### Print
 
-Outputs all students, in JSON format, to the console.
+Outputs all students to the console.
 
 ```shell
-./assignment_1 -o
+./assignment_1
 ```
+
+Then select "4" in the interactive prompt
 
 #### Change
 
@@ -66,10 +74,9 @@ Opens an interactive prompt to view and change the database. Will be read-only i
 Outputs all students to the provided file and cleans up the shared memory on exit.
 
 ```shell
-./assignment_1 -co data.json
+./assignment_1 -co output_students.txt
 ```
 
 ## Libraries Used
 
-- [nlohmann/json](https://github.com/nlohmann/json)
 - [p-ranav/argparse](https://github.com/p-ranav/argparse)
