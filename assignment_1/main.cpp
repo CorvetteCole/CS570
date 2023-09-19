@@ -31,7 +31,7 @@ int main(int argc, char **argv) {
       .help(
           "save the database to the specified file or to stdout if not "
           "provided")
-//      .default_value(std::string("-"))
+      //      .default_value(std::string("-"))
       .implicit_value(std::string("console"));
   program.add_argument("-q", "--query")
       .help("query the database for the specified student ID")
@@ -94,9 +94,27 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (program.present("--query")) {
+  if (program.present<int>("--query")) {
     auto query_id = program.get<int>("--query");
     // TODO: do query
+
+    // request user to input student id, then search for it in the database
+    StudentInfo queryStudent{};
+    for (int i = 0; i < db.size(); i++) {
+      auto student = db.get(i);
+      if (student.id == query_id) {
+        queryStudent = student;
+        break;
+      }
+    }
+    if (queryStudent.id == 0) {
+      std::cout << "Student not found" << std::endl;
+    } else {
+      std::cout << queryStudent.name << std::endl;
+      std::cout << queryStudent.id << std::endl;
+      std::cout << queryStudent.address << std::endl;
+      std::cout << queryStudent.phone << std::endl;
+    }
   }
 
   if (output) {
