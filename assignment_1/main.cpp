@@ -3,14 +3,7 @@
 #include <fstream>
 
 #include "SharedDatabase.hpp"
-
-// must avoid using pointers in the struct
-// struct StudentInfo {
-//  char name[50];
-//  int id;
-//  char address[250];
-//  char phone[10];
-//};
+#include "StudentInfo.h"
 
 int main(int argc, char **argv) {
   argparse::ArgumentParser program("assignment_1");
@@ -52,8 +45,8 @@ int main(int argc, char **argv) {
   auto load = program.present("--load");
   auto output = program.present("--output");
 
-  auto db = SharedDatabase(password, 0, std::chrono::seconds(300),
-                           std::chrono::seconds(sleep), clean);
+  auto db = SharedDatabase<StudentInfo>(password, 0, std::chrono::seconds(300),
+                                        std::chrono::seconds(sleep), clean);
 
   if (load) {
     if (load.has_value()) {

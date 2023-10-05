@@ -41,14 +41,7 @@ struct Database {
   T entries[MAX_ENTRIES];
 };
 
-struct StudentInfo {
-  char name[51];
-  int id;
-  char address[251];
-  char phone[11];
-};
-
-// template <typename T>
+template <typename T>
 //  Implements a database of objects, stored in shared memory, that can be
 //  accessed by multiple processes concurrently.
 class SharedDatabase {
@@ -112,19 +105,18 @@ class SharedDatabase {
 
     readOnly_ = passwordHash != metadata_->passwordHash;
 
-    databaseShmid_ = shmget(databaseKey, sizeof(Database<StudentInfo>),
+    databaseShmid_ = shmget(databaseKey, sizeof(Database<T>),
                             IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
 
     if (databaseShmid_ != -1 || errno == EEXIST) {
       if (errno == EEXIST) {
         // get shmid of existing database
-        databaseShmid_ = shmget(databaseKey, sizeof(Database<StudentInfo>), 0);
+        databaseShmid_ = shmget(databaseKey, sizeof(Database<T>), 0);
       }
 
       // attach database_ to shared memory segment
-      database_ = static_cast<Database<StudentInfo> *>(
-          shmat(databaseShmid_, nullptr, 0));
-      if (database_ == reinterpret_cast<Database<StudentInfo> *>(-1)) {
+      database_ = static_cast<Database<T> *>(shmat(databaseShmid_, nullptr, 0));
+      if (database_ == reinterpret_cast<Database<T> *>(-1)) {
         throw std::system_error(
             errno, std::generic_category(),
             "Attaching to database shared memory segment failed");
@@ -148,7 +140,7 @@ class SharedDatabase {
   };
 
   // Returns a copy of the element at the given index.
-  [[nodiscard]] StudentInfo get(size_t index) const {
+  [[nodiscard]] T get(size_t index) const {
     if (index >= metadata_->numEntries) {
       throw std::out_of_range("Index out of bounds");
     }
@@ -170,7 +162,7 @@ class SharedDatabase {
   // Returns a shared pointer to the element at the given index. The database is
   // locked while the pointer is in use, and unlocked when the pointer is
   // destroyed.
-  [[nodiscard]] std::shared_ptr<StudentInfo> at(size_t index) {
+  [[nodiscard]] std::shared_ptr<T> at(size_t index) {
     // check if index is within bounds
     if (index >= metadata_->numEntries) {
       throw std::out_of_range("Index out of bounds");
@@ -179,7 +171,7 @@ class SharedDatabase {
     auto writeLock = getWriteLock();
     // Return a shared pointer to the data, with a deleter that holds a
     // reference to the lock pointer until
-    return {&database_->entries[index], [writeLock](StudentInfo *data) {}};
+    return {&database_->entries[index], [writeLock](T *data) {}};
   };
 
   // Deletes the element at the given index.
@@ -199,7 +191,7 @@ class SharedDatabase {
   };
 
   // Adds an element to the end of the database.
-  void push_back(StudentInfo data) {
+  void push_back(T data) {
     if (metadata_->numEntries >= metadata_->maxEntries) {
       throw std::out_of_range("Database is full");
     }
@@ -209,7 +201,7 @@ class SharedDatabase {
   };
 
   // Sets the element at the given index to the given data.
-  void set(size_t index, StudentInfo data) {
+  void set(size_t index, T data) {
     // check if index is within bounds
     if (index >= metadata_->numEntries) {
       throw std::out_of_range("Index out of bounds");
@@ -240,7 +232,7 @@ class SharedDatabase {
 
  private:
   DatabaseMetadata *metadata_;
-  Database<StudentInfo> *database_;
+  Database<T> *database_;
   bool readOnly_;
   bool clean_;
   std::chrono::milliseconds semTimeout_;

@@ -16,6 +16,7 @@ add_executable(assignment_1 main.cpp
         SharedDatabase.hpp
         Utilities.cpp
         Utilities.h
+        StudentInfo.h
 )
 target_link_libraries(assignment_1 PRIVATE argparse)
 

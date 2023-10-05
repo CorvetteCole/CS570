@@ -3,6 +3,7 @@
 //
 
 #include "Utilities.h"
+
 #include <iostream>
 
 [[nodiscard]] std::shared_ptr<sem_t> acquireSem(

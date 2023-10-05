@@ -7,16 +7,9 @@
 #include <thread>
 
 #include "SharedDatabase.hpp"
+#include "StudentInfo.h"
 
 using namespace std::chrono_literals;
-
-// must avoid using pointers in the struct
-//struct StudentInfo {
-//  char name[50];
-//  int id;
-//  char address[250];
-//  char phone[10];
-//};
 
 std::string DB_PASSWORD = "password";
 constexpr int DB_ID = 120;
@@ -67,13 +60,12 @@ class SharedDatabaseTest : public ::testing::Test {
     auto database_shmid =
         shmget(database_key, sizeof(Database<StudentInfo>), 0);
     shmctl(database_shmid, IPC_RMID, nullptr);
-    db = new SharedDatabase(DB_PASSWORD, DB_ID,
-                            50ms, 0ms, true);  //<StudentInfo>(DB_PASSWORD, DB_ID, 50ms);
+    db = new SharedDatabase<StudentInfo>(
+        DB_PASSWORD, DB_ID, 50ms, 0ms,
+        true);  //<StudentInfo>(DB_PASSWORD, DB_ID, 50ms);
   }
 
-  ~SharedDatabaseTest() override {
-    delete db;
-  }
+  ~SharedDatabaseTest() override { delete db; }
 
   //  void SetUp() override { fillStudents(); }
 
@@ -95,7 +87,7 @@ class SharedDatabaseTest : public ::testing::Test {
     }
   }
 
-  SharedDatabase *db;  //<StudentInfo> *db;
+  SharedDatabase<StudentInfo> *db;
 };
 
 // TEST_F(SharedDatabaseTest, simultaneous_read) {
@@ -187,7 +179,7 @@ class SharedDatabaseTest : public ::testing::Test {
 
 TEST_F(SharedDatabaseTest, shared_memory_matches) {
   fillStudents();
-  auto db2 = SharedDatabase(DB_PASSWORD, DB_ID);
+  auto db2 = SharedDatabase<StudentInfo>(DB_PASSWORD, DB_ID);
   EXPECT_EQ(db2.size(), db->size());
   // verify that the students are the same on both databases
   for (int i = 0; i < db->size(); i++) {
@@ -212,7 +204,7 @@ TEST_F(SharedDatabaseTest, shared_memory_matches) {
 TEST_F(SharedDatabaseTest, readonly) {
   fillStudents();
   std::string incorrectPassword = "nooooo";
-  auto db2 = SharedDatabase(incorrectPassword, DB_ID);
+  auto db2 = SharedDatabase<StudentInfo>(incorrectPassword, DB_ID);
   EXPECT_EQ(db2.size(), db->size());
   // verify that the students are the same on both databases
   for (int i = 0; i < db->size(); i++) {
