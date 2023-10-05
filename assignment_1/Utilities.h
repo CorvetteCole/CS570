@@ -7,8 +7,10 @@
 
 // Locks a semaphore, returning a handle that automatically unlocks it when
 // destroyed.
+#include <semaphore.h>
+
+#include <chrono>
 #include <memory>
-#include <semaphore>
 
 using namespace std::chrono_literals;
 
