@@ -72,7 +72,7 @@ int VirtualDisk::open(const std::string &user_name, const std::string &file_name
     FileMetadata metadata;
     __off_t current_disk_offset = 0;
     bool file_found = false;
-    lseek(disk_fd_, 0, SEEK_SET); // Start from the beginning of the disk
+    lseek(disk_fd_, 0, SEEK_SET);// Start from the beginning of the disk
     while (::read(disk_fd_, &metadata, sizeof(metadata)) == sizeof(metadata)) {
         if (strncmp(metadata.file_name, file_name.c_str(), FILE_NAME_SIZE) == 0 &&
             strncmp(metadata.user_name, user_name.c_str(), USER_NAME_SIZE) == 0) {
@@ -81,7 +81,7 @@ int VirtualDisk::open(const std::string &user_name, const std::string &file_name
             break;
         }
         // Skip over the file contents to the next metadata entry
-        current_disk_offset += sizeof(FileMetadata) + metadata.size;
+        current_disk_offset += sizeof(FileMetadata) + DEFAULT_FILE_SIZE;
         lseek(disk_fd_, current_disk_offset, SEEK_SET);
     }
 
@@ -101,7 +101,7 @@ int VirtualDisk::open(const std::string &user_name, const std::string &file_name
         FileInfo file_info;
         strncpy(file_info.file_name, file_name.c_str(), FILE_NAME_SIZE);
         strncpy(file_info.user_name, user_name.c_str(), USER_NAME_SIZE);
-        file_info.size = DEFAULT_FILE_SIZE;
+        file_info.size = 0;
         file_info.disk_offset = current_disk_offset;
         file_info.current_position = 0;// Start at the beginning of the file
         file_table_[fd] = file_info;
@@ -110,7 +110,7 @@ int VirtualDisk::open(const std::string &user_name, const std::string &file_name
         FileMetadata new_metadata;
         strncpy(new_metadata.file_name, file_name.c_str(), FILE_NAME_SIZE);
         strncpy(new_metadata.user_name, user_name.c_str(), USER_NAME_SIZE);
-        new_metadata.size = DEFAULT_FILE_SIZE;
+        new_metadata.size = 0;
         lseek(disk_fd_, current_disk_offset, SEEK_SET);
         ::write(disk_fd_, &new_metadata, sizeof(new_metadata));
 
@@ -160,14 +160,14 @@ ssize_t VirtualDisk::write(int file_descriptor, const void *buffer, size_t count
     // Check if the file descriptor is valid
     auto it = file_table_.find(file_descriptor);
     if (it == file_table_.end()) {
-        errno = EBADF; // Bad file descriptor
+        errno = EBADF;// Bad file descriptor
         return -1;
     }
 
     FileInfo &file_info = it->second;
 
     // make sure the file has enough space for the write
-    if (file_info.current_position + count > file_info.size) {
+    if (file_info.current_position + count > DEFAULT_FILE_SIZE) {
         errno = ENOSPC;// No space left on device
         return -1;
     }
@@ -185,6 +185,18 @@ ssize_t VirtualDisk::write(int file_descriptor, const void *buffer, size_t count
 
     // Update the current position
     file_info.current_position += bytes_written;
+
+    // if the write is past the current size of the file, update the file's size
+    if (file_info.current_position + count > file_info.size) {
+        file_info.size = file_info.current_position + count;
+        // Update the file's metadata on the virtual disk
+        FileMetadata metadata;
+        strncpy(metadata.file_name, file_info.file_name, FILE_NAME_SIZE);
+        strncpy(metadata.user_name, file_info.user_name, USER_NAME_SIZE);
+        metadata.size = file_info.size;
+        lseek(disk_fd_, file_info.disk_offset, SEEK_SET);
+        ::write(disk_fd_, &metadata, sizeof(metadata));
+    }
 
     return bytes_written;
 }
@@ -209,7 +221,7 @@ off_t VirtualDisk::seek(int file_descriptor, off_t offset, int whence) {
             new_position = file_info.current_position + offset;
             break;
         case SEEK_END:
-            new_position = file_info.current_position + file_info.size;
+            new_position = file_info.size;
             break;
         default:
             errno = EINVAL;// Invalid argument
@@ -247,42 +259,60 @@ int VirtualDisk::close(int file_descriptor) {
     return 0;// Success
 }
 int VirtualDisk::remove(const std::string &user_name, const std::string &file_name) {
-    // Find the file in the file table
-    for (auto it = file_table_.begin(); it != file_table_.end(); ++it) {
-        if (it->second.user_name == user_name && it->second.file_name == file_name) {
-            auto file_info = it->second;
-            size_t file_size_with_metadata = sizeof(FileMetadata) + file_info.size;
-            size_t remaining_disk_size = DISK_CAPACITY - (file_info.disk_offset + file_size_with_metadata);
-            char *buffer = new char[remaining_disk_size];
+    FileMetadata metadata;
+    __off_t current_disk_offset = 0;
+    bool file_found = false;
 
-            // Read the rest of the disk into the buffer
-            lseek(disk_fd_, file_info.disk_offset + file_size_with_metadata, SEEK_SET);
-            read(disk_fd_, buffer, remaining_disk_size);
+    // Start from the beginning of the disk
+    lseek(disk_fd_, 0, SEEK_SET);
 
-            // Write the buffer back, starting from where the file to be removed begins
-            lseek(disk_fd_, file_info.disk_offset, SEEK_SET);
-            write(disk_fd_, buffer, remaining_disk_size);
-
-            // Update the disk_offset for all subsequent files
-            for (auto &entry : file_table_) {
-                if (entry.second.disk_offset > file_info.disk_offset) {
-                    entry.second.disk_offset -= file_size_with_metadata;
-                }
-            }
-
-            // Truncate the virtual disk file to its new size
-            ftruncate(disk_fd_, DISK_CAPACITY - file_size_with_metadata);
-
-            // Remove the file descriptor from the file table
-            file_table_.erase(it);
-
-            delete[] buffer;
-            return 0; // Success
+    // Read through the entire disk to find the file's metadata
+    while (::read(disk_fd_, &metadata, sizeof(metadata)) == sizeof(metadata)) {
+        if (strncmp(metadata.file_name, file_name.c_str(), FILE_NAME_SIZE) == 0 &&
+            strncmp(metadata.user_name, user_name.c_str(), USER_NAME_SIZE) == 0) {
+            // File's metadata found
+            file_found = true;
+            break;
         }
+        // Move to the next file's metadata
+        current_disk_offset += sizeof(FileMetadata) + DEFAULT_FILE_SIZE;
+        lseek(disk_fd_, current_disk_offset, SEEK_SET);
     }
-    // File not found
-    errno = ENOENT; // No such file or directory
-    return -1;
+
+    if (file_found) {
+        // Calculate the size of the remaining data after the file to be removed
+        off_t end_of_file_to_remove = current_disk_offset + sizeof(FileMetadata) + DEFAULT_FILE_SIZE;
+        lseek(disk_fd_, 0, SEEK_END);
+        off_t disk_end = lseek(disk_fd_, 0, SEEK_CUR);
+        size_t remaining_size = disk_end - end_of_file_to_remove;
+
+        char *remaining_data = nullptr;
+        try {
+            remaining_data = new char[remaining_size];
+        } catch (const std::bad_alloc &) {
+            // Handle memory allocation failure
+            errno = ENOMEM;// Not enough space
+            return -1;
+        }
+
+        // Read the remaining data into a buffer
+        ::read(disk_fd_, remaining_data, remaining_size);
+
+        // Move the file pointer back to where the file's metadata starts
+        lseek(disk_fd_, current_disk_offset, SEEK_SET);
+
+        // Write the remaining data back to the disk, effectively removing the file
+        ::write(disk_fd_, remaining_data, remaining_size);
+
+        // Truncate the disk to the new size
+        ftruncate(disk_fd_, current_disk_offset + remaining_size);
+
+        delete[] remaining_data;
+        return 0;// Success
+    } else {
+        errno = ENOENT;// No such file or directory
+        return -1;     // File not found
+    }
 }
 std::vector<std::string> VirtualDisk::list(const std::string &user_name) {
     std::vector<std::string> file_list;
@@ -300,7 +330,7 @@ std::vector<std::string> VirtualDisk::list(const std::string &user_name) {
             file_list.emplace_back(metadata.file_name);
         }
         // Move to the next file's metadata
-        current_disk_offset += sizeof(FileMetadata) + metadata.size;
+        current_disk_offset += sizeof(FileMetadata) + DEFAULT_FILE_SIZE;
         lseek(disk_fd_, current_disk_offset, SEEK_SET);
     }
 
