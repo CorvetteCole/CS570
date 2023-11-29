@@ -168,8 +168,32 @@ delete_output *
 delete_file_1_svc(delete_input *argp, struct svc_req *rqstp)
 {
     static delete_output  result;
+    char filepath[PATH_MAX];
 
+    // Initialize output message
+    result.out_msg.out_msg_len = 0;
+    result.out_msg.out_msg_val = NULL;
 
+    // Construct file path
+    snprintf(filepath, sizeof(filepath), "/home/%s/%s", argp->user_name, argp->file_name);
+
+    // Attempt to delete the file
+    if (unlink(filepath) == -1) {
+        // Deletion failed, handle the error
+        result.out_msg.out_msg_val = strdup(strerror(errno));
+        return &result;
+    }
+
+    // Deletion was successful
+    char *success_msg = (char *)malloc(50);
+    if (success_msg != NULL) {
+        snprintf(success_msg, 50, "Deleted file %s", argp->file_name);
+        result.out_msg.out_msg_val = success_msg;
+        result.out_msg.out_msg_len = strlen(success_msg) + 1;
+    } else {
+        // Memory allocation for message failed
+        result.out_msg.out_msg_val = strdup("Memory allocation for success message failed");
+    }
 
     return &result;
 }
