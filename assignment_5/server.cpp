@@ -189,7 +189,36 @@ seek_output *
 seek_position_1_svc(seek_input *argp, struct svc_req *rqstp)
 {
     static seek_output  result;
+    int fd = argp->fd;
+    off_t position = argp->position;
+    off_t new_position;
 
+    // Initialize output message
+    result.success = 0; // Assume failure
+    result.out_msg.out_msg_len = 0;
+    result.out_msg.out_msg_val = NULL;
+
+    // Attempt to seek to the specified position
+    new_position = lseek(fd, position, SEEK_SET);
+    if (new_position == (off_t)-1) {
+        // Seek failed, handle the error
+        result.out_msg.out_msg_val = strdup(strerror(errno));
+        return &result;
+    }
+
+    // Seek was successful
+    result.success = 1;
+
+    // Set output message
+    char *success_msg = (char *)malloc(50);
+    if (success_msg != NULL) {
+        snprintf(success_msg, 50, "Seeked to position %ld in file descriptor %d", (long)new_position, fd);
+        result.out_msg.out_msg_val = success_msg;
+        result.out_msg.out_msg_len = strlen(success_msg) + 1;
+    } else {
+        // Memory allocation for message failed
+        result.out_msg.out_msg_val = strdup("Memory allocation for success message failed");
+    }
 
     return &result;
 }
