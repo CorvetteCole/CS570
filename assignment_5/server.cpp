@@ -120,8 +120,36 @@ write_output *
 write_file_1_svc(write_input *argp, struct svc_req *rqstp)
 {
     static write_output  result;
+    int fd = argp->fd;
+    int numbytes = argp->numbytes;
+    char *buffer = argp->buffer.buffer_val;
 
+    // Initialize output message
+    result.success = 0; // Assume failure
+    result.out_msg.out_msg_len = 0;
+    result.out_msg.out_msg_val = NULL;
 
+    // Attempt to write to the file
+    int bytes_written = write(fd, buffer, numbytes);
+    if (bytes_written < 0) {
+        // Write failed, handle the error
+        result.out_msg.out_msg_val = strdup(strerror(errno));
+        return &result;
+    }
+
+    // Write was successful
+    result.success = 1;
+
+    // Set output message
+    char *success_msg = (char *)malloc(50);
+    if (success_msg != NULL) {
+        snprintf(success_msg, 50, "Wrote %d bytes to file descriptor %d", bytes_written, fd);
+        result.out_msg.out_msg_val = success_msg;
+        result.out_msg.out_msg_len = strlen(success_msg) + 1;
+    } else {
+        // Memory allocation for message failed
+        result.out_msg.out_msg_val = strdup("Memory allocation for success message failed");
+    }
 
     return &result;
 }
