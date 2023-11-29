@@ -5,6 +5,10 @@
 */
 
 #include "ssnfs.h"
+#include "virtual_disk.h"
+
+// Create a global VirtualDisk object
+VirtualDisk virtualDisk("./virtual_fs");
 
 #include <dirent.h>
 #include <errno.h>
@@ -13,57 +17,28 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#define MAX_FILES 20
-#define BLOCK_SIZE 64 // Assuming block size is in bytes
-#define MAX_FILE_SIZE (BLOCK_SIZE * 64) // 64 blocks
-
 open_output *
-open_file_1_svc(open_input *argp, struct svc_req *rqstp)
-{
-    static open_output  result;
-    static int file_table[MAX_FILES] = {0};
-    int fd;
-    char filepath[PATH_MAX];
-    struct stat st = {0};
+open_file_1_svc(open_input *argp, struct svc_req *rqstp) {
+    static open_output result;
 
     // Initialize output message
     result.out_msg.out_msg_len = 0;
     result.out_msg.out_msg_val = NULL;
 
-    // Create user directory if it doesn't exist
-    snprintf(filepath, sizeof(filepath), "/home/%s", argp->user_name);
-    if (stat(filepath, &st) == -1) {
-        mkdir(filepath, 0700);
-    }
-
-    // Construct file path
-    snprintf(filepath, sizeof(filepath), "/home/%s/%s", argp->user_name, argp->file_name);
-
-    // Check if file exists, if not create it
-    fd = open(filepath, O_RDWR | O_CREAT, 0600);
+    // Use VirtualDisk to open the file
+    int fd = virtualDisk.open(argp->user_name, argp->file_name);
     if (fd == -1) {
-        result.fd = -1; // Failed to open or create file
+        // Failed to open or create file
+        result.fd = -1;
+        result.out_msg.out_msg_len = strlen("Failed to open or create file") + 1;
+        result.out_msg.out_msg_val = strdup("Failed to open or create file");
         return &result;
     }
 
-    // Check if file table is full
-    int i;
-    for (i = 0; i < MAX_FILES && file_table[i] != 0; ++i);
-    if (i == MAX_FILES) {
-        close(fd);
-        result.fd = -1; // File table is full
-        return &result;
-    }
-
-    // Allocate 64 blocks for a new file
-    if (ftruncate(fd, MAX_FILE_SIZE) == -1) {
-        close(fd);
-        result.fd = -1; // Failed to allocate space
-        return &result;
-    }
-
-    file_table[i] = fd; // Store file descriptor in the file table
-    result.fd = fd; // Return file descriptor to the client
+    // File opened successfully, set output message
+    result.fd = fd;
+    result.out_msg.out_msg_len = strlen(argp->file_name) + 1;
+    result.out_msg.out_msg_val = strdup(argp->file_name);
 
     // Set output message
     result.out_msg.out_msg_len = strlen(argp->file_name) + 1;
@@ -74,67 +49,56 @@ open_file_1_svc(open_input *argp, struct svc_req *rqstp)
 }
 
 read_output *
-read_file_1_svc(read_input *argp, struct svc_req *rqstp)
-{
-    static read_output  result;
+read_file_1_svc(read_input *argp, struct svc_req *rqstp) {
+    static read_output result;
     int fd = argp->fd;
     int numbytes = argp->numbytes;
-    char *buffer;
 
     // Initialize output message
-    result.success = 0; // Assume failure
+    result.success = 0;// Assume failure
     result.buffer.buffer_len = 0;
     result.buffer.buffer_val = NULL;
     result.out_msg.out_msg_len = 0;
     result.out_msg.out_msg_val = NULL;
 
-    // Allocate buffer for reading
-    buffer = (char *)malloc(numbytes);
-    if (buffer == NULL) {
-        result.out_msg.out_msg_val = strdup("Memory allocation failed");
-        return &result;
-    }
-
-    // Attempt to read from the file
-    int bytes_read = read(fd, buffer, numbytes);
+    // Attempt to read from the file using VirtualDisk
+    char *read_buffer = new char[numbytes];
+    ssize_t bytes_read = virtualDisk.read(fd, read_buffer, numbytes);
     if (bytes_read < 0) {
         // Read failed, handle the error
-        free(buffer);
-        result.out_msg.out_msg_val = strdup(strerror(errno));
+        delete[] read_buffer;
+        result.out_msg.out_msg_val = strdup("Error reading file");
         return &result;
-    }
-
-    // Set the buffer and length in the result
-    result.buffer.buffer_val = buffer;
-    result.buffer.buffer_len = bytes_read;
-    result.success = 1; // Read was successful
-
-    // If we read less than requested, it could be end of file
-    if (bytes_read < numbytes) {
-        result.out_msg.out_msg_val = strdup("End of file reached or partial read");
+    } else if (bytes_read == 0) {
+        // End of file reached
+        result.out_msg.out_msg_val = strdup("End of file reached");
+    } else {
+        // Read was successful
+        result.buffer.buffer_val = read_buffer;
+        result.buffer.buffer_len = bytes_read;
+        result.success = 1;
     }
 
     return &result;
 }
 
 write_output *
-write_file_1_svc(write_input *argp, struct svc_req *rqstp)
-{
-    static write_output  result;
+write_file_1_svc(write_input *argp, struct svc_req *rqstp) {
+    static write_output result;
     int fd = argp->fd;
     int numbytes = argp->numbytes;
     char *buffer = argp->buffer.buffer_val;
 
     // Initialize output message
-    result.success = 0; // Assume failure
+    result.success = 0;// Assume failure
     result.out_msg.out_msg_len = 0;
     result.out_msg.out_msg_val = NULL;
 
-    // Attempt to write to the file
-    int bytes_written = write(fd, buffer, numbytes);
+    // Attempt to write to the file using VirtualDisk
+    ssize_t bytes_written = virtualDisk.write(fd, buffer, numbytes);
     if (bytes_written < 0) {
         // Write failed, handle the error
-        result.out_msg.out_msg_val = strdup(strerror(errno));
+        result.out_msg.out_msg_val = strdup("Error writing file");
         return &result;
     }
 
@@ -142,9 +106,9 @@ write_file_1_svc(write_input *argp, struct svc_req *rqstp)
     result.success = 1;
 
     // Set output message
-    char *success_msg = (char *)malloc(50);
-    if (success_msg != NULL) {
-        snprintf(success_msg, 50, "Wrote %d bytes to file descriptor %d", bytes_written, fd);
+    char *success_msg = (char *) malloc(50);
+    if (success_msg) {
+        snprintf(success_msg, 50, "Wrote %zd bytes to file descriptor %d", bytes_written, fd);
         result.out_msg.out_msg_val = success_msg;
         result.out_msg.out_msg_len = strlen(success_msg) + 1;
     } else {
@@ -156,95 +120,52 @@ write_file_1_svc(write_input *argp, struct svc_req *rqstp)
 }
 
 list_output *
-list_files_1_svc(list_input *argp, struct svc_req *rqstp)
-{
-    static list_output  result;
-    DIR *d;
-    struct dirent *dir;
-    char filepath[PATH_MAX];
-    char *file_list;
-    size_t file_list_size = 0;
-    size_t file_list_capacity = 1024; // Initial capacity for file list
+list_files_1_svc(list_input *argp, struct svc_req *rqstp) {
+    static list_output result;
 
     // Initialize output message
     result.out_msg.out_msg_len = 0;
     result.out_msg.out_msg_val = NULL;
 
-    // Construct the path to the user's directory
-    snprintf(filepath, sizeof(filepath), "/home/%s", argp->user_name);
-
-    // Open the directory
-    d = opendir(filepath);
-    if (d == NULL) {
-        // Could not open directory, handle the error
-        result.out_msg.out_msg_val = strdup(strerror(errno));
-        return &result;
+    // Use VirtualDisk to list the files
+    std::vector<std::string> files = virtualDisk.list(argp->user_name);
+    std::string file_list_str;
+    for (const auto& file_name : files) {
+        file_list_str += file_name + "\n";
     }
 
-    // Allocate initial memory for file list
-    file_list = (char *)malloc(file_list_capacity);
+    // Allocate memory for the file list
+    char *file_list = strdup(file_list_str.c_str());
     if (file_list == NULL) {
-        closedir(d);
         result.out_msg.out_msg_val = strdup("Memory allocation for file list failed");
         return &result;
     }
 
-    // Read directory entries
-    while ((dir = readdir(d)) != NULL) {
-        if (dir->d_type == DT_REG) { // Check if it's a regular file
-            size_t name_len = strlen(dir->d_name);
-            // Check if we need to resize the file list buffer
-            if (file_list_size + name_len + 2 > file_list_capacity) { // +2 for newline and null terminator
-                file_list_capacity *= 2; // Double the capacity
-                char *new_file_list = (char *)realloc(file_list, file_list_capacity);
-                if (new_file_list == NULL) {
-                    free(file_list);
-                    closedir(d);
-                    result.out_msg.out_msg_val = strdup("Memory reallocation for file list failed");
-                    return &result;
-                }
-                file_list = new_file_list;
-            }
-            // Append the file name to the list
-            strcpy(file_list + file_list_size, dir->d_name);
-            file_list_size += name_len;
-            file_list[file_list_size++] = '\n'; // Add newline character
-            file_list[file_list_size] = '\0'; // Null-terminate the string
-        }
-    }
-
-    // Close the directory
-    closedir(d);
-
     // Set the file list in the result
     result.out_msg.out_msg_val = file_list;
-    result.out_msg.out_msg_len = file_list_size;
+    result.out_msg.out_msg_len = strlen(file_list) + 1;
 
     return &result;
 }
 
 delete_output *
-delete_file_1_svc(delete_input *argp, struct svc_req *rqstp)
-{
-    static delete_output  result;
-    char filepath[PATH_MAX];
+delete_file_1_svc(delete_input *argp, struct svc_req *rqstp) {
+    static delete_output result;
 
     // Initialize output message
     result.out_msg.out_msg_len = 0;
     result.out_msg.out_msg_val = NULL;
 
-    // Construct file path
-    snprintf(filepath, sizeof(filepath), "/home/%s/%s", argp->user_name, argp->file_name);
-
-    // Attempt to delete the file
-    if (unlink(filepath) == -1) {
+    // Use VirtualDisk to delete the file
+    int status = virtualDisk.remove(argp->user_name, argp->file_name);
+    if (status == -1) {
         // Deletion failed, handle the error
         result.out_msg.out_msg_val = strdup(strerror(errno));
         return &result;
     }
 
     // Deletion was successful
-    char *success_msg = (char *)malloc(50);
+    char *success_msg = (char *) malloc(50);
     if (success_msg != NULL) {
         snprintf(success_msg, 50, "Deleted file %s", argp->file_name);
         result.out_msg.out_msg_val = success_msg;
@@ -258,24 +179,23 @@ delete_file_1_svc(delete_input *argp, struct svc_req *rqstp)
 }
 
 close_output *
-close_file_1_svc(close_input *argp, struct svc_req *rqstp)
-{
-    static close_output  result;
+close_file_1_svc(close_input *argp, struct svc_req *rqstp) {
+    static close_output result;
     int fd = argp->fd;
 
     // Initialize output message
     result.out_msg.out_msg_len = 0;
     result.out_msg.out_msg_val = NULL;
 
-    // Attempt to close the file
-    if (close(fd) == -1) {
+    // Attempt to close the file using VirtualDisk
+    if (virtualDisk.close(fd) == -1) {
         // Close failed, handle the error
-        result.out_msg.out_msg_val = strdup(strerror(errno));
+        result.out_msg.out_msg_val = strdup("Error closing file");
         return &result;
     }
 
     // Close was successful
-    char *success_msg = (char *)malloc(50);
+    char *success_msg = (char *) malloc(50);
     if (success_msg != NULL) {
         snprintf(success_msg, 50, "Closed file descriptor %d", fd);
         result.out_msg.out_msg_val = success_msg;
@@ -290,23 +210,22 @@ close_file_1_svc(close_input *argp, struct svc_req *rqstp)
 
 
 seek_output *
-seek_position_1_svc(seek_input *argp, struct svc_req *rqstp)
-{
-    static seek_output  result;
+seek_position_1_svc(seek_input *argp, struct svc_req *rqstp) {
+    static seek_output result;
     int fd = argp->fd;
     off_t position = argp->position;
     off_t new_position;
 
     // Initialize output message
-    result.success = 0; // Assume failure
+    result.success = 0;// Assume failure
     result.out_msg.out_msg_len = 0;
     result.out_msg.out_msg_val = NULL;
 
-    // Attempt to seek to the specified position
-    new_position = lseek(fd, position, SEEK_SET);
-    if (new_position == (off_t)-1) {
+    // Attempt to seek to the specified position using VirtualDisk
+    new_position = virtualDisk.seek(fd, position, SEEK_SET);
+    if (new_position == (off_t) -1) {
         // Seek failed, handle the error
-        result.out_msg.out_msg_val = strdup(strerror(errno));
+        result.out_msg.out_msg_val = strdup("Error seeking file");
         return &result;
     }
 
@@ -314,9 +233,9 @@ seek_position_1_svc(seek_input *argp, struct svc_req *rqstp)
     result.success = 1;
 
     // Set output message
-    char *success_msg = (char *)malloc(50);
+    char *success_msg = (char *) malloc(50);
     if (success_msg != NULL) {
-        snprintf(success_msg, 50, "Seeked to position %ld in file descriptor %d", (long)new_position, fd);
+        snprintf(success_msg, 50, "Seeked to position %ld in file descriptor %d", (long) new_position, fd);
         result.out_msg.out_msg_val = success_msg;
         result.out_msg.out_msg_len = strlen(success_msg) + 1;
     } else {
