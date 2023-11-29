@@ -1,4 +1,4 @@
-#include "../virtual_disk.h"
+#include "../VirtualDisk.h"
 #include <cstdio>
 #include <fstream>
 #include <gtest/gtest.h>

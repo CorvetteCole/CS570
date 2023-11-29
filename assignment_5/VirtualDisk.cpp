@@ -1,4 +1,4 @@
-#include "virtual_disk.h"
+#include "VirtualDisk.h"
 #include <fcntl.h>
 #include <stdexcept>
 #include <sys/stat.h>

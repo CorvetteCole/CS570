@@ -19,8 +19,8 @@ add_executable(client client.cpp
 add_executable(server server.cpp
         ssnfs_svc.c
         ssnfs_xdr.c
-        virtual_disk.h
-        virtual_disk.cpp)
+        VirtualDisk.h
+        VirtualDisk.cpp)
 
 
 enable_testing()
@@ -31,14 +31,24 @@ FetchContent_MakeAvailable(googletest)
 
 add_executable(virtual_disk_tests
         tests/VirtualDiskTests.cpp
-        virtual_disk.h
-        virtual_disk.cpp)
+        VirtualDisk.h
+        VirtualDisk.cpp
+        IVirtualDisk.h)
+
+add_executable(server_tests
+        tests/ServerTests.cpp
+        ssnfs_svc.c
+        ssnfs_xdr.c
+        IVirtualDisk.h)
 
 target_link_libraries(virtual_disk_tests gtest_main)
+
+target_link_libraries(server_tests gtest_main)
 
 include(GoogleTest)
 
 gtest_discover_tests(virtual_disk_tests)
+gtest_discover_tests(server_tests)
 
 
 
