@@ -6,78 +6,128 @@
 
 #include "ssnfs.h"
 
+#include <fcntl.h>
+#include <errno.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+#define MAX_FILES 20
+#define BLOCK_SIZE 64 // Assuming block size is in bytes
+#define MAX_FILE_SIZE (BLOCK_SIZE * 64) // 64 blocks
+
 open_output *
 open_file_1_svc(open_input *argp, struct svc_req *rqstp)
 {
-   static open_output  result;
+    static open_output  result;
+    static int file_table[MAX_FILES] = {0};
+    int fd;
+    char filepath[PATH_MAX];
+    struct stat st = {0};
 
-   result.fd=20;
-   result.out_msg.out_msg_len=10;
-   free(result.out_msg.out_msg_val);
-   result.out_msg.out_msg_val=(char *) malloc(result.out_msg.out_msg_len);
-   strcpy(result.out_msg.out_msg_val, (*argp).file_name);
-   printf("In server: filename recieved:%s\n",argp->file_name);
-   printf("In server username received:%s\n",argp->user_name);
-   //	fflush((FILE *) 1);
-   return &result;
+    // Initialize output message
+    result.out_msg.out_msg_len = 0;
+    result.out_msg.out_msg_val = NULL;
+
+    // Create user directory if it doesn't exist
+    snprintf(filepath, sizeof(filepath), "/home/%s", argp->user_name);
+    if (stat(filepath, &st) == -1) {
+        mkdir(filepath, 0700);
+    }
+
+    // Construct file path
+    snprintf(filepath, sizeof(filepath), "/home/%s/%s", argp->user_name, argp->file_name);
+
+    // Check if file exists, if not create it
+    fd = open(filepath, O_RDWR | O_CREAT, 0600);
+    if (fd == -1) {
+        result.fd = -1; // Failed to open or create file
+        return &result;
+    }
+
+    // Check if file table is full
+    int i;
+    for (i = 0; i < MAX_FILES && file_table[i] != 0; ++i);
+    if (i == MAX_FILES) {
+        close(fd);
+        result.fd = -1; // File table is full
+        return &result;
+    }
+
+    // Allocate 64 blocks for a new file
+    if (ftruncate(fd, MAX_FILE_SIZE) == -1) {
+        close(fd);
+        result.fd = -1; // Failed to allocate space
+        return &result;
+    }
+
+    file_table[i] = fd; // Store file descriptor in the file table
+    result.fd = fd; // Return file descriptor to the client
+
+    // Set output message
+    result.out_msg.out_msg_len = strlen(argp->file_name) + 1;
+    result.out_msg.out_msg_val = (char *) malloc(result.out_msg.out_msg_len);
+    strcpy(result.out_msg.out_msg_val, argp->file_name);
+
+    return &result;
 }
 
 read_output *
 read_file_1_svc(read_input *argp, struct svc_req *rqstp)
 {
-   static read_output  result;
+    static read_output  result;
 
 
 
-   return &result;
+    return &result;
 }
 
 write_output *
 write_file_1_svc(write_input *argp, struct svc_req *rqstp)
 {
-   static write_output  result;
+    static write_output  result;
 
 
 
-   return &result;
+    return &result;
 }
 
 list_output *
 list_files_1_svc(list_input *argp, struct svc_req *rqstp)
 {
-   static list_output  result;
+    static list_output  result;
 
 
 
-   return &result;
+    return &result;
 }
 
 delete_output *
 delete_file_1_svc(delete_input *argp, struct svc_req *rqstp)
 {
-   static delete_output  result;
+    static delete_output  result;
 
 
 
-   return &result;
+    return &result;
 }
 
 close_output *
 close_file_1_svc(close_input *argp, struct svc_req *rqstp)
 {
-   static close_output  result;
+    static close_output  result;
 
 
 
-   return &result;
+    return &result;
 }
 
 
 seek_output *
 seek_position_1_svc(seek_input *argp, struct svc_req *rqstp)
 {
-   static seek_output  result;
+    static seek_output  result;
 
 
-   return &result;
+    return &result;
 }
