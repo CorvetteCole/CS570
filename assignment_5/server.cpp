@@ -178,8 +178,29 @@ close_output *
 close_file_1_svc(close_input *argp, struct svc_req *rqstp)
 {
     static close_output  result;
+    int fd = argp->fd;
 
+    // Initialize output message
+    result.out_msg.out_msg_len = 0;
+    result.out_msg.out_msg_val = NULL;
 
+    // Attempt to close the file
+    if (close(fd) == -1) {
+        // Close failed, handle the error
+        result.out_msg.out_msg_val = strdup(strerror(errno));
+        return &result;
+    }
+
+    // Close was successful
+    char *success_msg = (char *)malloc(50);
+    if (success_msg != NULL) {
+        snprintf(success_msg, 50, "Closed file descriptor %d", fd);
+        result.out_msg.out_msg_val = success_msg;
+        result.out_msg.out_msg_len = strlen(success_msg) + 1;
+    } else {
+        // Memory allocation for message failed
+        result.out_msg.out_msg_val = strdup("Memory allocation for success message failed");
+    }
 
     return &result;
 }
