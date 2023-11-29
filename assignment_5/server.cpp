@@ -6,8 +6,9 @@
 
 #include "ssnfs.h"
 
-#include <fcntl.h>
+#include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -158,8 +159,66 @@ list_output *
 list_files_1_svc(list_input *argp, struct svc_req *rqstp)
 {
     static list_output  result;
+    DIR *d;
+    struct dirent *dir;
+    char filepath[PATH_MAX];
+    char *file_list;
+    size_t file_list_size = 0;
+    size_t file_list_capacity = 1024; // Initial capacity for file list
 
+    // Initialize output message
+    result.out_msg.out_msg_len = 0;
+    result.out_msg.out_msg_val = NULL;
 
+    // Construct the path to the user's directory
+    snprintf(filepath, sizeof(filepath), "/home/%s", argp->user_name);
+
+    // Open the directory
+    d = opendir(filepath);
+    if (d == NULL) {
+        // Could not open directory, handle the error
+        result.out_msg.out_msg_val = strdup(strerror(errno));
+        return &result;
+    }
+
+    // Allocate initial memory for file list
+    file_list = (char *)malloc(file_list_capacity);
+    if (file_list == NULL) {
+        closedir(d);
+        result.out_msg.out_msg_val = strdup("Memory allocation for file list failed");
+        return &result;
+    }
+
+    // Read directory entries
+    while ((dir = readdir(d)) != NULL) {
+        if (dir->d_type == DT_REG) { // Check if it's a regular file
+            size_t name_len = strlen(dir->d_name);
+            // Check if we need to resize the file list buffer
+            if (file_list_size + name_len + 2 > file_list_capacity) { // +2 for newline and null terminator
+                file_list_capacity *= 2; // Double the capacity
+                char *new_file_list = (char *)realloc(file_list, file_list_capacity);
+                if (new_file_list == NULL) {
+                    free(file_list);
+                    closedir(d);
+                    result.out_msg.out_msg_val = strdup("Memory reallocation for file list failed");
+                    return &result;
+                }
+                file_list = new_file_list;
+            }
+            // Append the file name to the list
+            strcpy(file_list + file_list_size, dir->d_name);
+            file_list_size += name_len;
+            file_list[file_list_size++] = '\n'; // Add newline character
+            file_list[file_list_size] = '\0'; // Null-terminate the string
+        }
+    }
+
+    // Close the directory
+    closedir(d);
+
+    // Set the file list in the result
+    result.out_msg.out_msg_val = file_list;
+    result.out_msg.out_msg_len = file_list_size;
 
     return &result;
 }
