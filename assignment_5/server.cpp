@@ -76,8 +76,42 @@ read_output *
 read_file_1_svc(read_input *argp, struct svc_req *rqstp)
 {
     static read_output  result;
+    int fd = argp->fd;
+    int numbytes = argp->numbytes;
+    char *buffer;
 
+    // Initialize output message
+    result.success = 0; // Assume failure
+    result.buffer.buffer_len = 0;
+    result.buffer.buffer_val = NULL;
+    result.out_msg.out_msg_len = 0;
+    result.out_msg.out_msg_val = NULL;
 
+    // Allocate buffer for reading
+    buffer = (char *)malloc(numbytes);
+    if (buffer == NULL) {
+        result.out_msg.out_msg_val = strdup("Memory allocation failed");
+        return &result;
+    }
+
+    // Attempt to read from the file
+    int bytes_read = read(fd, buffer, numbytes);
+    if (bytes_read < 0) {
+        // Read failed, handle the error
+        free(buffer);
+        result.out_msg.out_msg_val = strdup(strerror(errno));
+        return &result;
+    }
+
+    // Set the buffer and length in the result
+    result.buffer.buffer_val = buffer;
+    result.buffer.buffer_len = bytes_read;
+    result.success = 1; // Read was successful
+
+    // If we read less than requested, it could be end of file
+    if (bytes_read < numbytes) {
+        result.out_msg.out_msg_val = strdup("End of file reached or partial read");
+    }
 
     return &result;
 }
