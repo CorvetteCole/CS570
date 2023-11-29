@@ -247,37 +247,62 @@ int VirtualDisk::close(int file_descriptor) {
     return 0;// Success
 }
 int VirtualDisk::remove(const std::string &user_name, const std::string &file_name) {
-    // Iterate through the file table to find the file
+    // Find the file in the file table
     for (auto it = file_table_.begin(); it != file_table_.end(); ++it) {
         if (it->second.user_name == user_name && it->second.file_name == file_name) {
-            // delete metadata from disk, shift rest of disk to fill gap
             auto file_info = it->second;
-            // metadata is at file_info.disk_offset
-            // file contents are at file_info.disk_offset + sizeof(FileMetadata)
+            size_t file_size_with_metadata = sizeof(FileMetadata) + file_info.size;
+            size_t remaining_disk_size = DISK_CAPACITY - (file_info.disk_offset + file_size_with_metadata);
+            char *buffer = new char[remaining_disk_size];
 
+            // Read the rest of the disk into the buffer
+            lseek(disk_fd_, file_info.disk_offset + file_size_with_metadata, SEEK_SET);
+            read(disk_fd_, buffer, remaining_disk_size);
 
+            // Write the buffer back, starting from where the file to be removed begins
+            lseek(disk_fd_, file_info.disk_offset, SEEK_SET);
+            write(disk_fd_, buffer, remaining_disk_size);
 
+            // Update the disk_offset for all subsequent files
+            for (auto &entry : file_table_) {
+                if (entry.second.disk_offset > file_info.disk_offset) {
+                    entry.second.disk_offset -= file_size_with_metadata;
+                }
+            }
 
+            // Truncate the virtual disk file to its new size
+            ftruncate(disk_fd_, DISK_CAPACITY - file_size_with_metadata);
 
+            // Remove the file descriptor from the file table
             file_table_.erase(it);
 
-
-
-
-
-            return 0;// Success
+            delete[] buffer;
+            return 0; // Success
         }
     }
     // File not found
-    errno = ENOENT;// No such file or directory
+    errno = ENOENT; // No such file or directory
     return -1;
 }
 std::vector<std::string> VirtualDisk::list(const std::string &user_name) {
     std::vector<std::string> file_list;
-    for (const auto &entry: file_table_) {
-        if (entry.second.user_name == user_name) {
-            file_list.emplace_back(entry.second.file_name);
+    FileMetadata metadata;
+    __off_t current_disk_offset = 0;
+
+    // Start from the beginning of the disk
+    lseek(disk_fd_, 0, SEEK_SET);
+
+    // Read through the entire disk
+    while (::read(disk_fd_, &metadata, sizeof(metadata)) == sizeof(metadata)) {
+        // Check if the user_name matches
+        if (strncmp(metadata.user_name, user_name.c_str(), USER_NAME_SIZE) == 0) {
+            // Add the file_name to the list
+            file_list.emplace_back(metadata.file_name);
         }
+        // Move to the next file's metadata
+        current_disk_offset += sizeof(FileMetadata) + metadata.size;
+        lseek(disk_fd_, current_disk_offset, SEEK_SET);
     }
+
     return file_list;
 }
