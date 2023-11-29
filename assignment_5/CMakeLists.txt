@@ -19,7 +19,9 @@ add_executable(client client.cpp
 
 add_executable(server server.cpp
         ssnfs_svc.c
-        ssnfs_xdr.c)
+        ssnfs_xdr.c
+        virtual_disk.h
+        virtual_disk.cpp)
 
 
 
