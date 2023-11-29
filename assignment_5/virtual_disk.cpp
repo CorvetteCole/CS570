@@ -36,6 +36,21 @@ void VirtualDisk::initialize_disk() {
         if (disk_fd_ == -1) {
             throw std::runtime_error("Failed to open virtual disk file");
         }
+        // Read the file metadata and rebuild the file table
+        FileMetadata metadata;
+        while (::read(disk_fd_, &metadata, sizeof(metadata)) == sizeof(metadata)) {
+            if (metadata.size == 0) break; // End of metadata section
+            FileInfo info;
+            strncpy(info.file_name, metadata.file_name, FILE_NAME_SIZE);
+            strncpy(info.user_name, metadata.user_name, USER_NAME_SIZE);
+            info.current_position = 0; // Start at the beginning of the file
+            int fd = next_fd_++;
+            file_table_[fd] = info;
+            // Skip over the file contents to the next metadata entry
+            if (lseek(disk_fd_, metadata.size, SEEK_CUR) == (off_t)-1) {
+                throw std::runtime_error("Failed to seek over file contents");
+            }
+        }
     }
 }
 
@@ -190,11 +205,11 @@ int VirtualDisk::remove(const std::string &user_name, const std::string &file_na
     errno = ENOENT; // No such file or directory
     return -1;
 }
-std::vector<std::string> VirtualDisk::list_files(const std::string &user_name) {
+std::vector<std::string> VirtualDisk::list(const std::string &user_name) {
     std::vector<std::string> file_list;
     for (const auto &entry : file_table_) {
         if (entry.second.user_name == user_name) {
-            file_list.push_back(entry.second.file_name);
+            file_list.emplace_back(entry.second.file_name);
         }
     }
     return file_list;

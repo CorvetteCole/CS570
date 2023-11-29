@@ -4,18 +4,23 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "ssnfs.h"
 
 // Define constants for the virtual disk
-const size_t BLOCK_SIZE = 512; // Block size in bytes
 const size_t DISK_CAPACITY = 16 * 1024 * 1024; // 16MB
 const size_t MAX_FILES = 20; // Maximum number of open files
-const size_t METADATA_BLOCKS = 32; // Number of blocks reserved for metadata
 
 // Structure to hold file information
 struct FileInfo {
-    std::string user_name;
-    std::string file_name;
+    char file_name[FILE_NAME_SIZE];
+    char user_name[USER_NAME_SIZE];
     __off_t current_position;
+};
+
+struct FileMetadata {
+    char file_name[FILE_NAME_SIZE];
+    char user_name[USER_NAME_SIZE];
+    size_t size;
 };
 
 class VirtualDisk {
@@ -32,7 +37,7 @@ public:
     int remove(const std::string &user_name, const std::string &file_name);
 
     // Directory operations
-    std::vector<std::string> list_files(const std::string &user_name);
+    std::vector<std::string> list(const std::string &user_name);
 
 private:
     std::string disk_path_;
