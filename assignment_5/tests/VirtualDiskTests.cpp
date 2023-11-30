@@ -95,6 +95,10 @@ TEST_F(VirtualDiskTest, RemoveFile) {
                                                                                                                                  
     int status = virtualDisk->remove("user", "filetoremove");
     ASSERT_EQ(status, 0);
+
+    // list files, should be empty
+    std::vector<std::string> files = virtualDisk->list("user");
+    ASSERT_TRUE(files.empty());
 }
                                                                                                                                  
 TEST_F(VirtualDiskTest, OpenMaxFiles) {

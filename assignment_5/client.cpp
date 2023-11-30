@@ -26,56 +26,20 @@ int Open(char *filename_to_open) {
     strcpy(open_file_1_arg.file_name, filename_to_open);
     result_1 = open_file_1(&open_file_1_arg, clnt);
     if (result_1 == (open_output *) NULL) {
-        clnt_perror(clnt, "call failed");
+        fprintf(stderr, "Open error: RPC call failed\n");
+        return -1;// Indicate error
     }
-    printf(" File name is %s\n", (*result_1).out_msg.out_msg_val);
-    return ((*result_1).fd);
+    if (result_1->fd == -1) {
+        fprintf(stderr, "Open error: %s\n", result_1->out_msg.out_msg_val ? result_1->out_msg.out_msg_val : "Unknown error");
+        return -1;// Indicate error
+    }
+    if (result_1->out_msg.out_msg_val == NULL) {
+        fprintf(stderr, "Open error: Missing error message\n");
+        return -1;// Indicate error
+    }
+    return result_1->fd;
 }
 
-
-/*
-
-	read_output  *result_2;
-	read_input  read_file_1_arg;
-	write_output  *result_3;
-	write_input  write_file_1_arg;
-	list_output  *result_4;
-	list_input  list_files_1_arg;
-	delete_output  *result_5;
-	delete_input  delete_file_1_arg;
-	close_output  *result_6;
-	close_input  close_file_1_arg;
-        seek_output * result_7;
-        seek_input seek_position_1_arg;
-
-
-	result_2 = read_file_1(&read_file_1_arg, clnt);
-	if (result_2 == (read_output *) NULL) {
-		clnt_perror (clnt, "call failed");
-	}
-	result_3 = write_file_1(&write_file_1_arg, clnt);
-	if (result_3 == (write_output *) NULL) {
-		clnt_perror (clnt, "call failed");
-	}
-	result_4 = list_files_1(&list_files_1_arg, clnt);
-	if (result_4 == (list_output *) NULL) {
-		clnt_perror (clnt, "call failed");
-	}
-	result_5 = delete_file_1(&delete_file_1_arg, clnt);
-	if (result_5 == (delete_output *) NULL) {
-		clnt_perror (clnt, "call failed");
-	}
-	result_6 = close_file_1(&close_file_1_arg, clnt);
-	if (result_6 == (close_output *) NULL) {
-		clnt_perror (clnt, "call failed");
-	}
-       	result_7 = seek_position_1(&seek_position_1_arg, clnt);
-	if (result_7 == (seek_output *) NULL) {
-		clnt_perror (clnt, "call failed");
-	}
-
-
-*/
 
 int Write(int fd, const char *data, int numbytes) {
     write_output *result_3;
@@ -85,17 +49,29 @@ int Write(int fd, const char *data, int numbytes) {
     strcpy(write_file_1_arg.user_name, (getpwuid(getuid()))->pw_name);
     write_file_1_arg.fd = fd;
     write_file_1_arg.numbytes = numbytes;
-    write_file_1_arg.buffer.buffer_val = (char *) data;
-    write_file_1_arg.buffer.buffer_len = numbytes;
 
-    result_3 = write_file_1(&write_file_1_arg, clnt);
-    if (result_3 == (write_output *) NULL) {
-        clnt_perror(clnt, "call failed");
+    // Allocate memory for the buffer to avoid using the pointer to potentially temporary data
+    write_file_1_arg.buffer.buffer_val = (char *) malloc(numbytes);
+    if (write_file_1_arg.buffer.buffer_val == NULL) {
+        fprintf(stderr, "Write error: Memory allocation for buffer failed\n");
         return -1;// Indicate error
     }
+    // Copy the data into the newly allocated buffer
+    memcpy(write_file_1_arg.buffer.buffer_val, data, numbytes);
+    write_file_1_arg.buffer.buffer_len = numbytes;
+
+    // Perform the RPC call
+    result_3 = write_file_1(&write_file_1_arg, clnt);
+
+    // Check if the RPC call failed
+    if (result_3 == nullptr) {
+        clnt_perror(clnt, "Write RPC call failed");
+        return -1;// Indicate error
+    }
+
+    // Check if the write operation was not successful
     if (result_3->success == 0) {
-        // Write operation was not successful
-        fprintf(stderr, "Write error: %s\n", result_3->out_msg.out_msg_val);
+        fprintf(stderr, "Write error: %s\n", result_3->out_msg.out_msg_val, result_3->success);
         return -1;// Indicate error
     }
 
@@ -112,13 +88,13 @@ int Close(int fd) {
     close_file_1_arg.fd = fd;
 
     result_6 = close_file_1(&close_file_1_arg, clnt);
-    if (result_6 == (close_output *) NULL) {
+    if (result_6 == nullptr) {
         clnt_perror(clnt, "call failed");
         return -1;// Indicate error
     }
 
     // Check if the close operation was successful
-    if (result_6->out_msg.out_msg_val == NULL || strcmp(result_6->out_msg.out_msg_val, "") == 0) {
+    if (result_6->out_msg.out_msg_len != 0 ) {
         // Close operation failed, handle the error
         fprintf(stderr, "Close error: %s\n", result_6->out_msg.out_msg_val);
         return -1;// Indicate error
@@ -129,7 +105,29 @@ int Close(int fd) {
 }
 
 int Seek(int fd, int position) {
-    // ... (existing Seek function code remains unchanged)
+    seek_output *result_7;
+    seek_input seek_position_1_arg;
+
+    // Set the user name from the current user's information
+    strcpy(seek_position_1_arg.user_name, (getpwuid(getuid()))->pw_name);
+    seek_position_1_arg.fd = fd;
+    seek_position_1_arg.position = position;
+
+    result_7 = seek_position_1(&seek_position_1_arg, clnt);
+    if (result_7 == (seek_output *) NULL) {
+        clnt_perror(clnt, "call failed");
+        return -1;// Indicate error
+    }
+
+    // Check if the seek operation was successful
+    if (result_7->success == 0) {
+        // Seek operation failed, handle the error
+        fprintf(stderr, "Seek error: %s\n", result_7->out_msg.out_msg_val);
+        return -1;// Indicate error
+    }
+
+    // Seek operation was successful
+    return 0;
 }
 
 int Delete(const char *filename) {
@@ -179,8 +177,14 @@ int Read(int fd, char *buffer, int numbytes) {
         return -1;// Indicate error
     }
 
+    // Ensure buffer is large enough and zero-initialized
+    memset(buffer, 0, numbytes + 1);
+
     // Read operation was successful, copy the data to the buffer
     memcpy(buffer, result_2->buffer.buffer_val, result_2->buffer.buffer_len);
+
+    // Null-terminate the buffer
+    buffer[result_2->buffer.buffer_len] = '\0';
 
     // Return the number of bytes read
     return result_2->buffer.buffer_len;
@@ -211,9 +215,6 @@ int main(int argc, char *argv[]) {
     }
     host = argv[1];
     ssnfsprog_1(host);
-    int fd;
-    fd = Open("MyFile");
-    printf("File descripter retuned is %d \n", fd);
 
     int i, j;
     int fd1, fd2;

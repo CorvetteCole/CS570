@@ -8,23 +8,23 @@
 #include <vector>
 
 // Define constants for the virtual disk
-const size_t DISK_CAPACITY = 16 * 1024 * 1024;// 16MB
-const size_t MAX_FILES = 20;                  // Maximum number of open files
-const size_t DEFAULT_FILE_SIZE = 32768;       // 32KB
+const off_t DISK_CAPACITY = 16 * 1024 * 1024;// 16MB
+const int MAX_FILES = 20;                  // Maximum number of open files
+const off_t DEFAULT_FILE_SIZE = 32768;       // 32KB
 
 // Structure to hold file information
 struct FileInfo {
     char file_name[FILE_NAME_SIZE];
     char user_name[USER_NAME_SIZE];
-    __off_t current_position;// relative to the start of the actual data
-    size_t size;
-    __off_t disk_offset;
+    off_t current_position;// relative to the start of the actual data
+    off_t size;
+    off_t disk_offset;
 };
 
 struct FileMetadata {
     char file_name[FILE_NAME_SIZE];
     char user_name[USER_NAME_SIZE];
-    size_t size;
+    off_t size;
 };
 
 

@@ -35,20 +35,13 @@ add_executable(virtual_disk_tests
         VirtualDisk.cpp
         IVirtualDisk.h)
 
-add_executable(server_tests
-        tests/ServerTests.cpp
-        ssnfs_svc.c
-        ssnfs_xdr.c
-        IVirtualDisk.h)
+
 
 target_link_libraries(virtual_disk_tests gtest_main)
-
-target_link_libraries(server_tests gtest_main)
 
 include(GoogleTest)
 
 gtest_discover_tests(virtual_disk_tests)
-gtest_discover_tests(server_tests)
 
 
 

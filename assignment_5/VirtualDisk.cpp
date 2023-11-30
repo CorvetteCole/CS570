@@ -93,6 +93,7 @@ int VirtualDisk::open(const std::string &user_name, const std::string &file_name
         strncpy(file_info.user_name, metadata.user_name, USER_NAME_SIZE);
         file_info.size = metadata.size;
         file_info.disk_offset = current_disk_offset;
+        file_info.current_position = 0;// Start at the beginning of the file
         file_table_[fd] = file_info;
         return fd;
     } else {
@@ -258,6 +259,7 @@ int VirtualDisk::close(int file_descriptor) {
     file_table_.erase(it);
     return 0;// Success
 }
+
 int VirtualDisk::remove(const std::string &user_name, const std::string &file_name) {
     FileMetadata metadata;
     __off_t current_disk_offset = 0;
