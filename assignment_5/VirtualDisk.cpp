@@ -1,24 +1,24 @@
 #include "VirtualDisk.h"
 #include <fcntl.h>
 #include <stdexcept>
+#include <utility>
 #include <sys/stat.h>
-#include <sys/types.h>
 #include <unistd.h>
 
-VirtualDisk::VirtualDisk(const std::string &disk_path)
-    : disk_path_(disk_path), disk_fd_(-1), next_fd_(3) {// File descriptors 0, 1, 2 are reserved
+VirtualDisk::VirtualDisk(std::string disk_path)
+    : disk_path_(std::move(disk_path)), disk_fd_(-1), next_fd_(3) {// File descriptors 0, 1, 2 are reserved
     initialize_disk();
 }
 
 VirtualDisk::~VirtualDisk() {
     if (disk_fd_ != -1) {
-        close(disk_fd_);
+        ::close(disk_fd_);
     }
 }
 
 void VirtualDisk::initialize_disk() {
     // Check if the virtual disk file exists
-    struct stat st;
+    struct stat st{};
     if (stat(disk_path_.c_str(), &st) == -1) {
         // Virtual disk file does not exist, create it
         disk_fd_ = ::open(disk_path_.c_str(), O_RDWR | O_CREAT, 0600);
@@ -51,7 +51,7 @@ int VirtualDisk::open(const std::string &user_name, const std::string &file_name
         return -1;
     }
 
-    // Make sure the user name and file name are not too long
+    // Make sure the username and file name are not too long
     if (user_name.length() >= USER_NAME_SIZE || file_name.length() >= FILE_NAME_SIZE) {
         errno = ENAMETOOLONG;// File name too long
         return -1;
@@ -69,8 +69,8 @@ int VirtualDisk::open(const std::string &user_name, const std::string &file_name
     }
 
     // Check if the file's metadata exists on the virtual disk
-    FileMetadata metadata;
-    __off_t current_disk_offset = 0;
+    FileMetadata metadata{};
+    off_t current_disk_offset = 0;
     bool file_found = false;
     lseek(disk_fd_, 0, SEEK_SET);// Start from the beginning of the disk
     while (::read(disk_fd_, &metadata, sizeof(metadata)) == sizeof(metadata)) {
@@ -88,7 +88,7 @@ int VirtualDisk::open(const std::string &user_name, const std::string &file_name
     if (file_found) {
         // File's metadata found, update the file info in the file table
         int fd = next_fd_++;
-        FileInfo file_info;
+        FileInfo file_info{};
         strncpy(file_info.file_name, metadata.file_name, FILE_NAME_SIZE);
         strncpy(file_info.user_name, metadata.user_name, USER_NAME_SIZE);
         file_info.size = metadata.size;
@@ -99,7 +99,7 @@ int VirtualDisk::open(const std::string &user_name, const std::string &file_name
     } else {
         // File's metadata not found, create a new file descriptor and file info
         int fd = next_fd_++;
-        FileInfo file_info;
+        FileInfo file_info{};
         strncpy(file_info.file_name, file_name.c_str(), FILE_NAME_SIZE);
         strncpy(file_info.user_name, user_name.c_str(), USER_NAME_SIZE);
         file_info.size = 0;
@@ -108,7 +108,7 @@ int VirtualDisk::open(const std::string &user_name, const std::string &file_name
         file_table_[fd] = file_info;
 
         // Write new FileMetadata struct to the virtual disk
-        FileMetadata new_metadata;
+        FileMetadata new_metadata{};
         strncpy(new_metadata.file_name, file_name.c_str(), FILE_NAME_SIZE);
         strncpy(new_metadata.user_name, user_name.c_str(), USER_NAME_SIZE);
         new_metadata.size = 0;
@@ -191,7 +191,7 @@ ssize_t VirtualDisk::write(int file_descriptor, const void *buffer, size_t count
     if (file_info.current_position + count > file_info.size) {
         file_info.size = file_info.current_position + count;
         // Update the file's metadata on the virtual disk
-        FileMetadata metadata;
+        FileMetadata metadata{};
         strncpy(metadata.file_name, file_info.file_name, FILE_NAME_SIZE);
         strncpy(metadata.user_name, file_info.user_name, USER_NAME_SIZE);
         metadata.size = file_info.size;
@@ -211,7 +211,7 @@ off_t VirtualDisk::seek(int file_descriptor, off_t offset, int whence) {
     }
 
     FileInfo &file_info = it->second;
-    off_t new_position = 0;
+    off_t new_position;
 
     // Determine the new position based on the 'whence' parameter
     switch (whence) {
@@ -261,7 +261,7 @@ int VirtualDisk::close(int file_descriptor) {
 }
 
 int VirtualDisk::remove(const std::string &user_name, const std::string &file_name) {
-    FileMetadata metadata;
+    FileMetadata metadata{};
     __off_t current_disk_offset = 0;
     bool file_found = false;
 
@@ -288,7 +288,7 @@ int VirtualDisk::remove(const std::string &user_name, const std::string &file_na
         off_t disk_end = lseek(disk_fd_, 0, SEEK_CUR);
         size_t remaining_size = disk_end - end_of_file_to_remove;
 
-        char *remaining_data = nullptr;
+        char *remaining_data;
         try {
             remaining_data = new char[remaining_size];
         } catch (const std::bad_alloc &) {
@@ -318,7 +318,7 @@ int VirtualDisk::remove(const std::string &user_name, const std::string &file_na
 }
 std::vector<std::string> VirtualDisk::list(const std::string &user_name) {
     std::vector<std::string> file_list;
-    FileMetadata metadata;
+    FileMetadata metadata{};
     __off_t current_disk_offset = 0;
 
     // Start from the beginning of the disk

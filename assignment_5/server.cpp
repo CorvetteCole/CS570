@@ -1,8 +1,7 @@
 #include "VirtualDisk.h"
 #include "ssnfs.h"
 
-#include <dirent.h>
-#include <errno.h>
+#include <cerrno>
 #include <fcntl.h>
 #include <iostream>
 
@@ -15,14 +14,14 @@ open_file_1_svc(open_input *argp, struct svc_req *rqstp) {
 
     // Initialize output message
     result.out_msg.out_msg_len = 0;
-    result.out_msg.out_msg_val = NULL;
+    result.out_msg.out_msg_val = nullptr;
 
     // Use VirtualDisk to open the file
     int fd = virtualDisk.open(argp->user_name, argp->file_name);
     if (fd == -1) {
         // Failed to open or create file
         result.fd = -1;
-        const char* error_message = strerror(errno);
+        const char *error_message = strerror(errno);
         result.out_msg.out_msg_val = strdup(error_message);
         result.out_msg.out_msg_len = strlen(error_message) + 1;
         return &result;
@@ -48,11 +47,11 @@ read_file_1_svc(read_input *argp, struct svc_req *rqstp) {
     int numbytes = argp->numbytes;
 
     // Reset the result structure
-    result.out_msg.out_msg_val = NULL;
+    result.out_msg.out_msg_val = nullptr;
     result.out_msg.out_msg_len = 0;
-    result.success = 0; // Assume failure by default
+    result.success = 0;// Assume failure by default
     result.buffer.buffer_len = 0;
-    result.buffer.buffer_val = NULL;
+    result.buffer.buffer_val = nullptr;
 
     // Attempt to read from the file using VirtualDisk
     char *read_buffer = new char[numbytes];
@@ -61,7 +60,7 @@ read_file_1_svc(read_input *argp, struct svc_req *rqstp) {
         // Read failed, handle the error
         delete[] read_buffer;
         // get the error from the errno
-        const char* error_message = strerror(errno);
+        const char *error_message = strerror(errno);
         result.out_msg.out_msg_val = strdup(error_message);
         result.out_msg.out_msg_len = strlen(error_message) + 1;
     } else {
@@ -84,7 +83,7 @@ write_file_1_svc(write_input *argp, struct svc_req *rqstp) {
     // Initialize output message
     result.success = 0;// Assume failure
     result.out_msg.out_msg_len = 0;
-    result.out_msg.out_msg_val = NULL;
+    result.out_msg.out_msg_val = nullptr;
 
     std::cout << "writing buffer: " << buffer << std::endl;
 
@@ -95,7 +94,7 @@ write_file_1_svc(write_input *argp, struct svc_req *rqstp) {
 
     if (bytes_written < 0) {
         // Write failed, handle the error
-        const char* error_message = strerror(errno);
+        const char *error_message = strerror(errno);
         result.out_msg.out_msg_val = strdup(error_message);
         result.out_msg.out_msg_len = strlen(error_message) + 1;
         return &result;
@@ -112,12 +111,12 @@ list_files_1_svc(list_input *argp, struct svc_req *rqstp) {
 
     // Initialize output message
     result.out_msg.out_msg_len = 0;
-    result.out_msg.out_msg_val = NULL;
+    result.out_msg.out_msg_val = nullptr;
 
     // Use VirtualDisk to list the files
     std::vector<std::string> files = virtualDisk.list(argp->user_name);
     std::string file_list_str;
-    for (const auto& file_name : files) {
+    for (const auto &file_name: files) {
         file_list_str += file_name + "\n";
     }
 
@@ -137,20 +136,16 @@ delete_file_1_svc(delete_input *argp, struct svc_req *rqstp) {
 
     // Initialize output message
     result.out_msg.out_msg_len = 0;
-    result.out_msg.out_msg_val = NULL;
+    result.out_msg.out_msg_val = nullptr;
 
     // Use VirtualDisk to delete the file
     int status = virtualDisk.remove(argp->user_name, argp->file_name);
     if (status == -1) {
-        const char* error_message = strerror(errno);
+        const char *error_message = strerror(errno);
         result.out_msg.out_msg_val = strdup(error_message);
         result.out_msg.out_msg_len = strlen(error_message) + 1;
         return &result;
     }
-
-    // Deletion was successful
-    result.out_msg.out_msg_val = strdup("File deleted successfully");
-    result.out_msg.out_msg_len = strlen(result.out_msg.out_msg_val) + 1;
 
     return &result;
 }
@@ -162,12 +157,12 @@ close_file_1_svc(close_input *argp, struct svc_req *rqstp) {
 
     // Initialize output message
     result.out_msg.out_msg_len = 0;
-    result.out_msg.out_msg_val = NULL;
+    result.out_msg.out_msg_val = nullptr;
 
     // Attempt to close the file using VirtualDisk
     if (virtualDisk.close(fd) == -1) {
         // Close failed, handle the error
-        const char* error_message = strerror(errno);
+        const char *error_message = strerror(errno);
         result.out_msg.out_msg_val = strdup(error_message);
         result.out_msg.out_msg_len = strlen(error_message) + 1;
         return &result;
@@ -187,13 +182,13 @@ seek_position_1_svc(seek_input *argp, struct svc_req *rqstp) {
     // Initialize output message
     result.success = 0;// Assume failure
     result.out_msg.out_msg_len = 0;
-    result.out_msg.out_msg_val = NULL;
+    result.out_msg.out_msg_val = nullptr;
 
     // Attempt to seek to the specified position using VirtualDisk
     new_position = virtualDisk.seek(fd, position, SEEK_SET);
     if (new_position == (off_t) -1) {
         // Seek failed, handle the error
-        const char* error_message = strerror(errno);
+        const char *error_message = strerror(errno);
         result.out_msg.out_msg_val = strdup(error_message);
         result.out_msg.out_msg_len = strlen(error_message) + 1;
         return &result;

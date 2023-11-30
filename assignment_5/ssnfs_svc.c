@@ -8,8 +8,6 @@
 #include <stdlib.h>
 #include <rpc/pmap_clnt.h>
 #include <string.h>
-#include <memory.h>
-#include <sys/socket.h>
 #include <netinet/in.h>
 
 #ifndef SIG_PF
@@ -96,7 +94,6 @@ ssnfsprog_1(struct svc_req *rqstp, register SVCXPRT *transp)
 		fprintf (stderr, "%s", "unable to free arguments");
 		exit (1);
 	}
-	return;
 }
 
 int

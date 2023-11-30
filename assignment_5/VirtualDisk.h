@@ -30,7 +30,7 @@ struct FileMetadata {
 
 class VirtualDisk : public IVirtualDisk {
 public:
-    explicit VirtualDisk(const std::string &disk_path);
+    explicit VirtualDisk(std::string disk_path);
     ~VirtualDisk() override;
 
     // File operations
