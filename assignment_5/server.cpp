@@ -1,5 +1,7 @@
 #include "VirtualDisk.h"
+extern "C" {
 #include "ssnfs.h"
+}
 
 #include <cerrno>
 #include <fcntl.h>
