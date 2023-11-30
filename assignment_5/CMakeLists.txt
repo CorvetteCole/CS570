@@ -5,8 +5,11 @@ set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 17)
 
 include(FetchContent)
-include_directories(/usr/include/tirpc)
-link_libraries(tirpc dl m)
+
+if(EXISTS "/usr/include/tirpc")
+    include_directories(/usr/include/tirpc)
+    link_libraries(tirpc dl m)
+endif()
 
 set(GENERATED_RPC_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated_rpc)
 file(MAKE_DIRECTORY ${GENERATED_RPC_DIR})
@@ -44,7 +47,8 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
 add_executable(virtual_disk_tests tests/VirtualDiskTests.cpp
-        VirtualDisk.cpp)
+        VirtualDisk.cpp
+        ${GENERATED_RPC_DIR}/ssnfs.h)
 
 target_link_libraries(virtual_disk_tests gtest_main)
 
